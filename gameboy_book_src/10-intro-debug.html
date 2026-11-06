@@ -1,0 +1,113 @@
+<section id="introduction">
+<h1>Introduction</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+<p>If you've spent your programming career in languages like Python, JavaScript, C#, or even C, stepping into Game Boy assembly language can feel like travelling back to the bare metal origins of computing. Everything you take for granted—variables, expressions, function calls, loops—must be constructed manually from the most primitive operations imaginable.</p>
+<p>The Game Boy's processor is the Sharp SM83 (the CPU core inside the LR35902 chip), an 8-bit processor running at about 4.19 MHz. It is a cousin of the Zilog Z80 that powered the ZX Spectrum, Amstrad CPC and MSX machines, and of the Intel 8080 before it. Sharp kept most of the familiar instruction set, dropped the parts that cost chip area, and added a few new tricks of their own. The result is a CPU small enough to understand completely, in a machine that shipped over a hundred million units. Understanding Game Boy assembly gives you direct insight into how computers actually work at the lowest level.</p>
+<p>This guide is a companion to the Z80 guide for the ZX Spectrum and follows it chapter by chapter, example by example. You do not need to have read that guide, or to have seen any assembly language before. It assumes you can already program. We won't explain what a loop is conceptually—we'll show you how to build one from nothing but jumps and flags. Each section maps a familiar high-level concept to its Game Boy equivalent, highlighting what changes and what stays the same.</p>
+<p class="bold-text">Throughout this guide, all examples are written to be assembled using RGBDS (the rgbasm, rgblink and rgbfix tools), targeting the original monochrome Game Boy (DMG). This means every example can be built into a .gb ROM file and loaded directly into an emulator such as mGBA, or onto a real cartridge. Every example in this guide is also assembled and run in an emulator by an automated test suite, which checks what appears on the screen.</p>
+<p class="bold-text">How to read assembly: the six ideas you need before you start.</p>
+<ol>
+<li><strong>Instructions.</strong> An assembly program is a list of instructions, one per line. Each line is a short name, called a <em>mnemonic</em>, followed by the values it works on. <code>LD A, 5</code> means "load": put the number 5 into A. The assembler turns each line into the bytes the CPU actually runs.</li>
+<li><strong>Registers.</strong> The CPU has a handful of storage slots inside it, each with a one-letter name: <code>A</code>, <code>B</code>, <code>C</code>, <code>D</code>, <code>E</code>, <code>H</code> and <code>L</code>. Each holds one number from 0 to 255. Think of them as variables built into the processor. <code>A</code> is the busiest: most arithmetic happens in it. Some registers can team up in pairs (<code>BC</code>, <code>DE</code> and <code>HL</code>) to hold a bigger number, up to 65535.</li>
+<li><strong>Memory.</strong> Besides the registers, the Game Boy has memory: a long row of numbered boxes, each holding one number from 0 to 255. A box's number is its <em>address</em>. Some memory is <em>ROM</em> (read-only: your program lives there and it cannot be changed) and some is <em>RAM</em> (you can store and change values in it).</li>
+<li><strong>Numbers.</strong> Ordinary numbers are decimal. A <code>$</code> in front means hexadecimal, so <code>$FF</code> is 255. Addresses are usually written in hexadecimal because it is tidier (for example <code>$C000</code>). A character in quotes, like <code>'A'</code>, stands for its character code (65).</li>
+<li><strong>Comments and labels.</strong> Everything after a <code>;</code> on a line is a comment for human readers. A name followed by a colon, like <code>show:</code>, is a <em>label</em>: it marks a place in the program so that you can refer to it by name.</li>
+<li><strong>Subroutines.</strong> <code>CALL show</code> jumps to the label <code>show</code>, runs the instructions there, and comes back to the line after the CALL when it reaches <code>RET</code> (return). It is the assembly version of calling a function.</li>
+</ol>
+[[asm]]
+    LD A, 5              ; put the number 5 into register A
+    LD B, 3              ; put the number 3 into register B
+    ADD A, B             ; add B to A: A is now 8
+    CALL show            ; run the routine labelled "show", then carry on here
+[[/asm]]
+<p>That is enough to start. Everything else is introduced in the chapter where it is first needed, and each chapter says what is different from a high-level language.</p>
+</section>
+
+<section id="debug-output-routines">
+<h1>Debug Output Routines</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+<p>Throughout this guide, examples use a few small routines to display values on screen. These are your equivalent of console.log() or print() — a way to see what your code is actually doing. When you add two numbers and want to check the result, or need to verify that a conditional branch went the right way, these routines let you print the answer to the screen.</p>
+<p>The Game Boy has no built-in text printing, so the routines come as three small files that you save next to your programs. <strong>You do not need to understand how they work to use them</strong>: this section shows you how to include them, and Appendix 1 at the end of the guide contains the full listing of each file and a step-by-step explanation, which is worth reading once you have finished the early chapters.</p>
+<table>
+<thead><tr><th>File</th><th>What it contains</th></tr></thead>
+<tbody>
+<tr><td><code>hardware.inc</code></td><td>Names for the console's hardware settings, so that you can write <code>rBGP</code> instead of remembering the number $FF47</td></tr>
+<tr><td><code>font.inc</code></td><td>The pictures of the letters, digits and symbols</td></tr>
+<tr><td><code>debug_output.asm</code></td><td>The routines themselves: <code>debug_init</code>, <code>print_char</code>, <code>print_string</code> and <code>print_number</code></td></tr>
+</tbody>
+</table>
+<p>Copy each listing from Appendix 1 into a file with that name, in the same folder as the programs you write. (They are also in the <code>gameboy_lib</code> folder alongside this guide.)</p>
+
+<h2 id="setting-up-editor">Setting Up Your Editor</h2>
+<p>Before you write your first line of assembly, it helps to have an editor that understands Game Boy syntax. <a href="https://code.visualstudio.com/" target="_blank">Visual Studio Code</a> is a free, cross-platform editor that works well for this guide. Download and install it from <code>https://code.visualstudio.com/</code> for Windows, macOS, or Linux.</p>
+<p>Once VS Code is installed, add the <strong>RGBDS Z80</strong> extension by <strong>Donald Hays</strong>. It provides syntax highlighting for RGBDS <code>.asm</code> files — coloured keywords, register names, directives, and comments — making your source code much easier to read and navigate.</p>
+<p>To install it:</p>
+<ol>
+<li>Open VS Code and press <kbd>Ctrl+Shift+X</kbd> (Windows/Linux) or <kbd>Cmd+Shift+X</kbd> (macOS) to open the Extensions panel.</li>
+<li>Search for <strong>RGBDS Z80</strong>.</li>
+<li>Select the extension published by <strong>Donald Hays</strong> and click <strong>Install</strong>.</li>
+</ol>
+<p>Alternatively, install it from the command line:</p>
+[[text]]
+code --install-extension donaldhays.rgbds-z80
+[[/text]]
+<p>With the extension active, <code>.asm</code> files will have coloured keywords, register names, and comments.</p>
+
+<h3>Assembling with RGBDS</h3>
+<p>Every example in this guide is built with RGBDS, which is three small programs that you run one after another. <strong>rgbasm</strong> turns your source file into an object file. <strong>rgblink</strong> places the pieces at their final addresses and writes the ROM. <strong>rgbfix</strong> then fills in the cartridge header (the Nintendo logo, the title and the checksums) that a real Game Boy checks before it will run your program. Install RGBDS with your package manager (for example <code>brew install rgbds</code> on macOS) or download a ready-made build from <code>https://rgbds.gbdev.io/</code>.</p>
+<p>The general form of the commands is:</p>
+[[text]]
+rgbasm -o program.o program.asm
+rgblink -o program.gb program.o
+rgbfix -v -p 0xFF program.gb
+[[/text]]
+<p>The <code>-v</code> flag tells rgbfix to write a valid header, and <code>-p 0xFF</code> pads the ROM out to a legal size. The <code>-I .</code> that you will see in the examples tells rgbasm to look for any files your program asks for in the current folder (the dot means "this folder"); the next section shows how a program asks for files. For example, to build a file called <code>hello.asm</code>:</p>
+[[text]]
+rgbasm -I . -o hello.o hello.asm
+rgblink -o hello.gb hello.o
+rgbfix -v -p 0xFF hello.gb
+[[/text]]
+<p>If rgbasm finds an error it will print the offending file and line number and a short message. Fix the error and re-run the commands. When all three succeed with no output, your <code>.gb</code> file is ready.</p>
+
+<h3>Running with mGBA</h3>
+<p>mGBA is an accurate, free Game Boy emulator with a built-in debugger. Once you have a <code>.gb</code> file, pass it directly to mGBA on the command line:</p>
+[[text]]
+mgba program.gb
+[[/text]]
+<p>So for the example above:</p>
+[[text]]
+mgba hello.gb
+[[/text]]
+<p>mGBA opens and your program starts at once. The output from your debug routines appears on the emulated screen. Close the mGBA window when you are done, edit your source file, re-assemble, and run again.</p>
+<p>Your typical edit–assemble–run cycle from the terminal therefore looks like this (on Linux / Mac systems):</p>
+[[text]]
+rgbasm -I . -o hello.o hello.asm && rgblink -o hello.gb hello.o && rgbfix -v -p 0xFF hello.gb && mgba hello.gb
+[[/text]]
+<p>Chaining the commands with <code>&amp;&amp;</code> means each step only runs if the one before it succeeded — a failed assembly stops the chain before the emulator opens. The <code>gameboy_examples</code> folder contains a Makefile that does exactly this for every example: <code>make first.gb</code> builds one, and <code>make run-first</code> builds and launches it.</p>
+
+
+<h2 id="using-the-routines">Using the Routines</h2>
+<p>A program asks for another file with the <strong>INCLUDE</strong> directive. <code>INCLUDE "hardware.inc"</code> means "paste the contents of hardware.inc here". (A <em>directive</em> is an instruction to the assembler rather than to the CPU: it is not turned into code.) Every program in this guide follows the same pattern: <code>INCLUDE "hardware.inc"</code> on the first line, your own code in the middle, and <code>INCLUDE "debug_output.asm"</code> on the last line. The debug file includes <code>font.inc</code> by itself, so you never need to mention it.</p>
+<p>The routines are used by loading a value into a register and then calling them, as in the Introduction. This table shows what each routine expects:</p>
+<table>
+<thead><tr><th>Routine</th><th>You give it</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><code>debug_init</code></td><td>Nothing</td><td>Sets up the screen. Call it once, at the start of your program</td></tr>
+<tr><td><code>print_char</code></td><td>A = a character</td><td>Prints one character</td></tr>
+<tr><td><code>print_string</code></td><td>HL = the address where some text starts</td><td>Prints text that ends with a zero byte</td></tr>
+<tr><td><code>print_number</code></td><td>A = a number from 0 to 255</td><td>Prints it in decimal</td></tr>
+</tbody>
+</table>
+<p>Printing one character is so common that it has a one-instruction shortcut: <code>RST $10</code> does the same as <code>CALL print_char</code> (Chapter 12 explains how). The character code 13 means "start a new line". So the two most useful snippets are:</p>
+[[asm]]
+    CALL debug_init      ; Set up the screen (once, at the start)
+
+    LD A, '*'            ; Put the character '*' into A
+    RST $10              ; Print it
+
+    LD A, 13             ; 13 = new line
+    RST $10              ; Move to the next line
+[[/asm]]
+<p>You will meet <code>print_string</code> and <code>print_number</code> in Chapter 2, where text and numbers are introduced, and Chapter 1 builds your first complete program. The screen shows 20 characters per line and 18 lines; text wraps at the end of a line.</p>
+</section>
+

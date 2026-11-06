@@ -1,0 +1,250 @@
+<section id="11-a-complete-project-verified-counter">
+<h1>11. A Complete Project: Verified Counter</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+<p class="bold-text">Let's tie everything together with a complete, assembler-ready program that counts from 0 to 20, displays each value, and verifies the final count. Save this as counter.asm:</p>
+[[file counter.asm]]
+<p>Assemble and run:</p>
+[[text]]
+rgbasm -I . -o counter.o counter.asm && rgblink -o counter.gb counter.o && rgbfix -v -p 0xFF counter.gb && mgba counter.gb
+[[/text]]
+<p>The Game Boy's screen is only 20 characters wide, so the row of numbers wraps onto the next line. The counter lives in register C the whole time: print_number promises to keep BC safe, which is why this program works.</p>
+<p>This program demonstrates register operations, subroutine calls and returns, loops with manual construction, comparison and conditional jumps, the stack for preserving values, and—crucially—debug output to verify that the code is working correctly.</p>
+</section>
+
+<section id="rst-instructions-and-library-routines">
+<h1>12. RST Instructions &amp; Library Routines</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<p>Throughout this guide you've been using <code>RST $10</code> without much explanation. This chapter explains what it is: one of the CPU's built-in shortcut instructions. It also lists the library routines and hardware registers behind the examples in this guide.</p>
+
+<h2 id="rst-restart-instructions">RST (Restart) Instructions</h2>
+
+<p>The CPU has a set of special single-byte <code>CALL</code> instructions called <strong>RST</strong> (Restart). Where a normal <code>CALL</code> takes 3 bytes (the opcode plus a 2-byte address), an RST takes just 1 byte. The CPU pushes the current PC onto the stack and jumps to a fixed address, exactly like a <code>CALL</code>. When the routine hits <code>RET</code>, execution returns to where you left off.</p>
+
+<p>Think of them as built-in function calls — shorthand for the most commonly used routines. The Game Boy has no operating system, and the first $100 bytes of your cartridge are yours, so <em>you</em> decide what each RST does. This guide's debug library puts a <code>JP print_char</code> at $0010, which is why <code>RST $10</code> prints a character.</p>
+
+<p>The pattern is always the same: load registers with the values the routine expects, then execute the RST or CALL. It's the assembly equivalent of calling a library function.</p>
+
+<h2 id="the-rst-table">The RST Table</h2>
+
+<p>There are exactly 8 RST instructions. Each jumps to a fixed address that is a multiple of 8:</p>
+
+<table>
+<thead>
+<tr>
+<th>Instruction</th>
+<th>Jumps To</th>
+<th>Bytes</th>
+<th>Game Boy Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>RST $00</code></td>
+<td><code>$0000</code></td>
+<td>1</td>
+<td>Free for your use (the boot ROM starts at $0000 only until it hands over to $0100)</td>
+</tr>
+<tr>
+<td><code>RST $08</code></td>
+<td><code>$0008</code></td>
+<td>1</td>
+<td>Free for your use</td>
+</tr>
+<tr class="highlight-row">
+<td><code>RST $10</code></td>
+<td><code>$0010</code></td>
+<td>1</td>
+<td><strong>Print character in A (set up by this guide's debug library)</strong></td>
+</tr>
+<tr>
+<td><code>RST $18</code></td>
+<td><code>$0018</code></td>
+<td>1</td>
+<td>Free for your use</td>
+</tr>
+<tr>
+<td><code>RST $20</code></td>
+<td><code>$0020</code></td>
+<td>1</td>
+<td>Free for your use</td>
+</tr>
+<tr>
+<td><code>RST $28</code></td>
+<td><code>$0028</code></td>
+<td>1</td>
+<td>Free for your use (many games put a jump-table routine here)</td>
+</tr>
+<tr>
+<td><code>RST $30</code></td>
+<td><code>$0030</code></td>
+<td>1</td>
+<td>Free for your use</td>
+</tr>
+<tr>
+<td><code>RST $38</code></td>
+<td><code>$0038</code></td>
+<td>1</td>
+<td>Free for your use. Often made a crash trap, because the byte $FF (blank ROM, and the padding rgbfix adds) is the opcode for RST $38</td>
+</tr>
+</tbody>
+</table>
+
+<p>The most commonly used here is <code>RST $10</code> — this guide's workhorse print routine. Almost every program that displays text uses it. Note that the five interrupt handlers sit just above the RST area, at $0040, $0048, $0050, $0058 and $0060, so the RST slots have only 8 bytes each before the next one begins.</p>
+
+<h2 id="common-library-routines">Common Library Routines</h2>
+
+<p>Besides the RST entry points, you call routines with a regular <code>CALL</code> instruction. The Game Boy has no built-in routines, but our debug library supplies the most useful ones. Here they are, together with the hardware registers behind the button and sound examples:</p>
+
+<h3 id="screen-and-output">Screen &amp; Output</h3>
+
+<table>
+<thead>
+<tr>
+<th>Routine</th>
+<th>Name</th>
+<th>Setup</th>
+<th>What It Does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>RST $10</code></td>
+<td>print_char</td>
+<td>A = character</td>
+<td>Print character at the cursor (13 = newline)</td>
+</tr>
+<tr>
+<td><code>debug_init</code></td>
+<td>debug_init</td>
+<td>(none)</td>
+<td>Set up the screen: load the font, clear the display, home the cursor and switch the LCD on. Calling it again clears the screen</td>
+</tr>
+<tr>
+<td><code>print_block</code></td>
+<td>print_block</td>
+<td>DE = address, BC = length</td>
+<td>Print string of BC bytes from DE (BC must not be 0)</td>
+</tr>
+<tr>
+<td><code>set_cursor</code></td>
+<td>set_cursor</td>
+<td>B = row, C = column (row 0&ndash;17, column 0&ndash;19)</td>
+<td>Set print position (AT equivalent). Counted from the top left</td>
+</tr>
+</tbody>
+</table>
+
+<h3 id="keyboard-and-input">Buttons &amp; Input</h3>
+
+<table>
+<thead>
+<tr>
+<th>Address</th>
+<th>Name</th>
+<th>Returns</th>
+<th>What It Does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>$FF00</code></td>
+<td>rP1 (joypad)</td>
+<td>Low 4 bits: 0 = pressed</td>
+<td>Write %00010000 to select A / B / Select / Start, or %00100000 to select the D-pad, then read it back (twice)</td>
+</tr>
+</tbody>
+</table>
+
+<h3 id="sound">Sound</h3>
+
+<table>
+<thead>
+<tr>
+<th>Address</th>
+<th>Name</th>
+<th>Setup</th>
+<th>What It Does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>$FF26</code></td>
+<td>rNR52</td>
+<td>$80 = on</td>
+<td>Master sound switch (turn on first)</td>
+</tr>
+<tr>
+<td><code>$FF24</code> / <code>$FF25</code></td>
+<td>rNR50 / rNR51</td>
+<td>$77 / $FF</td>
+<td>Master volume, and which channels go to which speaker</td>
+</tr>
+<tr>
+<td><code>$FF11</code> / <code>$FF12</code></td>
+<td>rNR11 / rNR12</td>
+<td>Duty cycle / volume and fade</td>
+<td>Shape and loudness of channel 1 (the square wave)</td>
+</tr>
+<tr>
+<td><code>$FF13</code> / <code>$FF14</code></td>
+<td>rNR13 / rNR14</td>
+<td>Pitch low 8 bits / bit 7 = start, bits 2-0 = pitch high 3 bits</td>
+<td>Set the note and play it. Frequency = 131072 / (2048 &minus; pitch) Hz, so higher values make higher notes</td>
+</tr>
+</tbody>
+</table>
+
+<h2 id="practical-examples">Practical Examples</h2>
+
+<h3 id="example-1-print-a-single-character">Example 1: Print a Single Character</h3>
+
+<p>The simplest possible use — print the letter 'A' to the screen:</p>
+
+[[file print_a_char.asm]]
+
+<p>Notice how <code>RST $10</code> is just one byte. The equivalent <code>CALL print_char</code> would do the same thing but take 3 bytes. In a tight loop printing thousands of characters, those 2 bytes per call add up.</p>
+
+<h3 id="example-2-print-a-string">Example 2: Print a String</h3>
+
+<p>Print a null-terminated string by looping over each character:</p>
+
+[[file print_hello.asm]]
+
+<h3 id="example-3-print-at-position">Example 3: Print at a Specific Screen Position</h3>
+
+<p>Use the library's set_cursor routine to position the cursor before printing:</p>
+
+[[file print_at.asm]]
+
+<h3 id="example-4-block-print">Example 4: Print a String Using the Block Print Routine</h3>
+
+<p>Instead of looping character by character, use the library's block printer. You pass it a pointer and a length, and it does the rest:</p>
+
+[[file print_block.asm]]
+
+<p>The <code>@</code> symbol means "the current address" in RGBDS (the Z80 guide's Pasmo uses <code>$</code> for the same thing), so <code>@ - message</code> calculates the string length automatically at assembly time. No need to count characters by hand.</p>
+
+<h3 id="example-5-wait-for-keypress">Example 5: Wait for a Button Press</h3>
+
+<p>Display a prompt, wait for the user to press the A or B button, then print which one they pressed:</p>
+
+[[file wait_key.asm]]
+
+<h3 id="example-6-play-a-beep">Example 6: Play a Beep</h3>
+
+<p>Use the sound registers to play a tone on channel 1, one of the Game Boy's four sound channels. The pitch and duration values take some experimentation — higher pitch values give higher notes. The value $7C0 used here makes 2048 Hz. The sound plays by itself once started, so all the program has to do is wait for half a second before finishing:</p>
+
+[[file beep.asm]]
+
+<h3 id="why-rst-instead-of-call">Why RST Instead of CALL?</h3>
+
+<p>You might wonder: if <code>RST $10</code> does the same as <code>CALL $0010</code>, why bother with RST at all? Two reasons:</p>
+
+<p><strong>Size:</strong> RST is 1 byte, CALL is 3 bytes. In a routine that prints hundreds of characters, that's significant — a Game Boy cartridge can be as small as 32KB.</p>
+
+<p><strong>Speed:</strong> RST executes in 4 machine cycles (16 clock ticks) vs 6 machine cycles (24 clock ticks) for CALL. At about 4.19 MHz, every cycle counts in time-critical code like games.</p>
+
+<p>The trade-off is that there are only 8 RST addresses available ($00, $08, $10, $18, $20, $28, $30, $38), and each has only 8 bytes of room before the next. Which routines deserve these premium slots is your choice.</p>
+
+</section>

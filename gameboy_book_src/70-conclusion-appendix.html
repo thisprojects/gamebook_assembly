@@ -1,0 +1,128 @@
+<section id="conclusion-what-you-gain">
+<h1>Conclusion: What You Gain</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+<p>Learning Game Boy assembly won't make you a faster programmer or help you ship products quicker. But it will fundamentally change how you understand computers.</p>
+<p>You'll understand why arrays start at index 0 (because they're pointer offsets), why buffer overflows are dangerous (because there's nothing stopping you from writing past the end), why recursion can overflow the stack (because it's a finite region of memory), and why optimising compilers are miraculous (because doing it by hand is painstaking).</p>
+<p>More than that, you'll gain appreciation for the elegant simplicity at the heart of all computing: everything is bytes, everything is addresses, everything is instructions executing one after another. The abstractions we build on top are conveniences, not necessities. And the Game Boy teaches one more lesson: the hardware is not magic either. The screen, the sound and the buttons are all just memory addresses, and the rules about when you may touch them are rules you can learn.</p>
+<p>The Game Boy's CPU is a beautiful teaching machine because it's complex enough to be realistic but simple enough to hold entirely in your head. When you can trace every instruction, every memory access, every flag change, you've achieved a kind of understanding that no amount of high-level programming can provide.</p>
+<h2 id="quick-reference-rgbds-workflow">Quick Reference: RGBDS Workflow</h2>
+[[asm]]
+; 1. Write your code in a .asm file
+; 2. Include the hardware names and the debug routines:
+;        INCLUDE "hardware.inc"
+;        INCLUDE "debug_output.asm"
+; 3. Assemble, link and fix the header:
+;        rgbasm -I . -o yourfile.o yourfile.asm
+;        rgblink -o yourfile.gb yourfile.o
+;        rgbfix -v -p 0xFF yourfile.gb
+; 4. Load in mGBA or another Game Boy emulator:
+;        mgba yourfile.gb
+; 5. The ROM starts running at once
+[[/asm]]
+<h2 id="further-resources">Further Resources</h2>
+<p>Pan Docs—the complete Game Boy technical reference: https://gbdev.io/pandocs/</p>
+<p>The Game Boy CPU instruction set and opcode tables: https://gbdev.io/gb-opcodes/</p>
+<p>RGBDS documentation: https://rgbds.gbdev.io/docs/</p>
+<p>mGBA emulator: https://mgba.io/</p>
+<p>The Game Boy ASM tutorial from the gbdev community: https://gbdev.io/gb-asm-tutorial/</p>
+<p>The gbdev community site, with news, tools and homebrew games: https://gbdev.io/</p>
+<p>Welcome to the machine.</p>
+</section>
+
+<section id="appendix-debug-output-routine">
+<h1>Appendix 1: Debug Output Routines</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+<p>This appendix has everything about the debug output routines that the early chapters asked you to take on trust. You can use the routines without reading it. Come back once you have worked through Chapters 1 to 7, because by then you will have met every instruction the routines use and they will read as ordinary assembly.</p>
+<p>It starts with the three files to save (they are the same files as in the <code>gameboy_lib</code> folder). Then it walks through the routines one at a time: what each does, and why it is written the way it is. It ends with a test program that uses all of them.</p>
+
+<h2 id="the-three-files">The Three Files</h2>
+<p>Save each of these in the same folder as your programs. First, <code>hardware.inc</code>, which gives names to the hardware registers so that you don't have to remember their addresses:</p>
+[[file hardware.inc]]
+<p>Next, <code>font.inc</code>: the pictures of the letters. Each character is 8 bytes, one byte per row of 8 pixels, and a set bit is a dark pixel. The ninety-six characters are the printable ASCII set (space to the copyright sign):</p>
+[[file font.inc]]
+<p>Finally <code>debug_output.asm</code> itself, with all the routines in one place:</p>
+[[file debug_output.asm]]
+<p>With the three files saved, here is a complete program that uses all four routines, with the standard start and end that every program has (Chapter 1 explains them). It prints a string, a number and a character:</p>
+[[file example1.asm]]
+<h2 id="debug-init">debug_init</h2>
+<p>The Game Boy's screen is not a bitmap that you draw pixels onto. It is built from <em>tiles</em>: small 8×8 pixel pictures stored in video memory (VRAM). A second block of VRAM, the <em>tile map</em>, is a grid saying which tile to show in each position. The visible screen is 20 tiles wide and 18 tiles high (160×144 pixels), so to print text you copy a picture of each letter into VRAM as a tile and then write letter numbers into the map. We arrange for each letter's tile number to equal its ASCII code, so putting the byte 65 in the map shows an 'A'.</p>
+<p>There is one more rule. The picture processor owns VRAM while it is drawing, and anything you write then is lost. You may only touch VRAM while the screen is off, or during VBlank, the short pause between one frame and the next. So <code>debug_init</code> waits for the LCD to reach VBlank (scanline 144 of 154, which is when the <code>rLY</code> register reaches 144), turns the LCD off, sets up the font and a clear map, and turns the LCD back on. Because the LCD is off, it can copy hundreds of bytes in one go without having to wait.</p>
+<p>The registers it uses are memory addresses with names, defined in <code>hardware.inc</code>: <code>rLY</code> is the scanline counter, <code>rLCDC</code> switches the LCD and its layers on and off, and <code>rBGP</code> chooses which of the four shades each of the tile colours maps to. Writing to them is how you talk to the hardware on the Game Boy, since there are no ports.</p>
+[[part debug_output.asm | debug_init: | ; --- Move the cursor]]
+<p>Call this once at the very start of your program. After that, the screen is ready and you can print to it freely. (The last part of the routine, clearing the sprites, hides the 40 small movable pictures that the Game Boy can draw on top of the background. This guide does not use them, but their memory contains random junk at power-on, which would show up as stray marks on the screen.)</p>
+
+<h2 id="debug-print-char">print_char</h2>
+<p>In a high-level language, you'd write something like print('A') — you call a function and pass the character as an argument. In assembly, there are no function arguments in that sense. Instead, you put the value in a register before calling the routine. The routine then reads it from that register. The A register is used here — whatever value is in A when you call print_char is the character that gets printed.</p>
+<p>The actual work is done by print_char itself: it turns the cursor position (column and row, kept in two bytes of RAM) into an address in the tile map, waits until the picture processor lets it write, stores the character there, and moves the cursor on. It also handles the newline character (13) and wraps at the end of a line and at the bottom of the screen. Notice that it saves and restores BC, DE and HL with PUSH and POP so that it never disturbs the caller's registers.</p>
+<p>You rarely call print_char by name. Instead the library places a <code>JP print_char</code> instruction at address <code>$0010</code>, which is the target of <code>RST $10</code>. RST is a special fast CALL to a fixed address, so <code>RST $10</code> prints whatever character is in the A register. (Chapter 12 explains RST in full.)</p>
+[[part debug_output.asm | print_char: | ; --- Print null-terminated string]]
+<p>To use it, load the character into A first, then call:</p>
+[[asm]]
+    LD A, '*'            ; Put ASCII code for '*' into A
+    CALL print_char      ; Prints: *
+[[/asm]]
+<p>For a newline, load 13 (carriage return) into A and use RST $10 directly — there is no need for a separate routine when it is just two instructions:</p>
+[[asm]]
+    LD A, 13             ; 13 = carriage return
+    RST $10              ; Move to the next line
+[[/asm]]
+
+<h2 id="debug-print-string">print_string</h2>
+<p>A string in assembly is just a sequence of bytes in memory, one per character, with a zero byte at the end to mark where the string finishes. This zero byte is called the null terminator — it is how the routine knows when to stop printing. You define a string like this:</p>
+[[asm]]
+msg: DB "Hello!", 0       ; The 0 at the end is the null terminator
+[[/asm]]
+<p>Let's break this line down. <strong>DB</strong> stands for "Define Byte" — it tells the assembler to place raw bytes directly into memory at this point rather than generating a machine instruction. The text in quotes, <code>"Hello!"</code>, is a shorthand — the assembler converts each character to its ASCII code and stores them as consecutive bytes (72, 101, 108, 108, 111, 33). The <strong>comma</strong> separates items in the DB list, so you can mix quoted strings with individual byte values. Here, the <strong>0</strong> after the comma is a single byte with the value zero — the null terminator. It does not represent the character '0' (which would be ASCII 48); it is literally the value 0, and it marks the end of the string so our print routine knows when to stop.</p>
+<p>The label msg is just a name for the memory address where the string starts. To print it, we need to tell the routine where to find the string. We do this by loading the address into the HL register pair. HL is a 16-bit register pair — H stands for High and L stands for Low, and together they hold a single 16-bit value. It is commonly used as a pointer — it holds the address of something in memory rather than the data itself.</p>
+[[part debug_output.asm | print_string: | ; --- Print BC bytes]]
+<p>Walking through it: <code>LD A, [HL]</code> reads one byte from the memory address that HL points to and puts it in A. The square brackets mean 'the contents of the address' — without them, <code>LD A, HL</code> would not even be a valid instruction, because A is 8 bits and HL is 16. (Where the Z80 uses round brackets, RGBDS uses square ones, because round brackets already mean "do this sum first".) OR A is a quick way to check if A is zero (it sets the Zero flag without changing A's value). RET Z returns if the Zero flag is set, meaning we've reached the null terminator. Otherwise, RST $10 prints the character, INC HL moves the pointer forward by one byte to the next character, and JR print_string jumps back to the top of the loop.</p>
+
+<h3>Understanding what HL actually holds</h3>
+<p>When we write <code>LD HL, msg</code>, it is important to understand what HL contains afterwards. HL does not hold the string itself — it cannot, because HL is only two bytes wide, and a string can be any length. What HL holds is the <strong>memory address</strong> where the first character of the string is stored. It is a pointer to the beginning of the string, nothing more.</p>
+<p>The string itself lives in memory as a sequence of consecutive bytes laid out by the <code>DB</code> directive. Suppose <code>msg</code> ends up at address $0300 in the ROM. Memory would look like this:</p>
+[[asm]]
+; Address   Value    Character
+;  $0300      72       'H'      <-- HL points here ($0300)
+;  $0301     101       'e'
+;  $0302     108       'l'
+;  $0303     108       'l'
+;  $0304     111       'o'
+;  $0305      33       '!'
+;  $0306       0       null terminator
+[[/asm]]
+<p>After <code>LD HL, msg</code>, HL contains $0300. When we execute <code>LD A, [HL]</code>, the CPU goes to address $0300 and reads the byte there — 72, the ASCII code for 'H'. Now here is why <code>INC HL</code> works: it adds 1 to the address in HL, changing it from $0300 to $0301. The next time around the loop, <code>LD A, [HL]</code> reads from $0301 and gets 101 — the 'e'. Each time through the loop, INC HL advances the pointer by one address, and because the characters are stored in consecutive bytes, this moves us to the next character in the string.</p>
+<p>In a high-level language like Python, you might write <code>s[i]</code> and increment <code>i</code> — you keep a base address and an index, and the language computes the position for you. In assembly, we skip that and hold the position directly. HL <em>is</em> our position in the string. Incrementing it moves our position forward by one byte, which is exactly one character. There is no separate index variable, no base-plus-offset calculation — just a pointer that we walk forward through memory, one byte at a time, until we hit the null terminator.</p>
+<p>To use it:</p>
+[[asm]]
+    LD HL, msg           ; Point HL at the start of the string
+    CALL print_string    ; Prints: Hello!
+[[/asm]]
+
+<h2 id="debug-print-number">print_number</h2>
+<p>This routine prints a number (0–255) as readable digits on screen. For example, if A contains 42, it prints the characters '4' and '2'. The Game Boy has no built-in routine that converts a number to its decimal digits, so we do the maths ourselves, using the same method you learned at school: count how many hundreds fit into the number, then how many tens, and what is left over is the units.</p>
+<p>The counting is done by repeated subtraction (there is no divide instruction — see Chapter 3). The helper print_digit takes the remaining value in B and the unit (100 or 10) in C, subtracts C from B until it would go below zero, and prints the count as a digit. D remembers whether we have printed a digit yet, so that 42 prints as "42" and not "042" — but 0 still prints as "0".</p>
+<p>We also need to preserve the BC register. Other code in your program might be using B or C for something else (the counter project in Chapter 11 keeps its count in C), and if we overwrite them here, that code would break. PUSH BC saves BC's current value onto the stack (a temporary storage area) before we change it, and POP BC restores the original value when we're done. DE and HL are not promised to survive: this routine is allowed to change them, so save them yourself if you need them.</p>
+[[part debug_output.asm | print_number: | INCLUDE "font.inc"]]
+<p>To use it, just load your number into A and call:</p>
+[[asm]]
+    LD A, 42
+    CALL print_number    ; Prints: 42
+[[/asm]]
+
+
+<h2 id="how-to-use-it">How to Use It</h2>
+<p class="bold-text">Here is a complete example program that uses the debug routines to verify some arithmetic and conditional logic. Save this as test.asm and assemble it with:</p>
+[[text]]
+rgbasm -I . -o test.o test.asm && rgblink -o test.gb test.o && rgbfix -v -p 0xFF test.gb
+[[/text]]
+<p>Then load test.gb in your emulator (e.g. mGBA). The ROM starts running as soon as it is loaded.</p>
+[[file test.asm]]
+<p>When you run this program in an emulator, you should see:</p>
+<p>Debug output test</p>
+<p>42</p>
+<p>Test PASSED</p>
+<p>This confirms your arithmetic produced 42 and the conditional check passed. You can now use these routines anywhere in your code to inspect register values, verify calculations, and trace program flow.</p>
+</section>
+
+</body>
+</html>

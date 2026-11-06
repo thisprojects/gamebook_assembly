@@ -1,0 +1,212 @@
+<section id="8-input-output">
+<h1>8. Input &amp; Output</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="in-high-level-languages-8">In High-Level Languages</h2>
+<p>print(), console.log(), scanf(), file streams—abstract interfaces that hide hardware details. The OS and runtime handle the actual communication with devices.</p>
+<h2 id="in-game-boy-assembly-on-the-game-boy">In Game Boy Assembly on the Game Boy</h2>
+<p>The Game Boy provides one way to interact with hardware: memory-mapped I/O. There are no ROM routines to call and no IN/OUT instructions. Everything the console can do—show pictures, make sounds, read buttons—is controlled by reading and writing special addresses. The debug routines in this guide are library code we wrote ourselves, built on exactly that.</p>
+<h3 id="library-routines-for-screen-output">Library Routines for Screen Output</h3>
+<p>The debug routines in this guide give you a small set of building blocks for printing. The key entry points are:</p>
+[[asm]]
+    ; Set up the screen (also clears it)
+    CALL debug_init
+
+    ; Print a single character
+    LD A, 65             ; 'A'
+    RST $10
+
+    ; Move the cursor to row 5, column 2
+    LD B, 5
+    LD C, 2
+    CALL set_cursor
+
+    ; Clear the screen again
+    CALL debug_init
+[[/asm]]
+<h3 id="memory-mapped-i-o">Memory-Mapped I/O</h3>
+<p>On the Game Boy the whole 64KB address space is divided up between the cartridge, the video memory, the console's own RAM, and the hardware registers. The part you will use first is this:</p>
+[[asm]]
+; $0000-$7FFF  The cartridge ROM (your program)
+; $8000-$97FF  Tile pictures (VRAM)
+; $9800-$9BFF  Background tile map (VRAM): which tile goes where
+; $C000-$DFFF  Working RAM: your variables
+; $FE00-$FE9F  Sprite memory (small movable pictures; not used in this guide)
+; $FF00-$FF7F  Hardware registers: joypad, sound, LCD control, palettes...
+; $FF80-$FFFE  High RAM: fast RAM, and where the stack starts
+; $FFFF        Interrupt enable register
+[[/asm]]
+<p>To see how the screen works, here is what the debug routines have been doing for you. The Game Boy's screen is not a bitmap that you draw pixels onto. It is built from <em>tiles</em>: small 8×8 pixel pictures stored in video memory (VRAM). A second block of VRAM, the <em>tile map</em>, is a grid saying which tile to show in each position. The visible screen is 20 tiles wide and 18 tiles high (160×144 pixels). To print text, the debug routines copy a picture of each letter into VRAM as a tile, numbered so that the tile number equals the character code, and then write character codes into the map. Putting the byte 65 in the map shows an 'A'.</p>
+<p>There is one rule to respect. The picture processor owns VRAM while it is drawing the screen, and anything you write then is lost. You may only write while the screen is off, or during <em>VBlank</em>: the short pause after the last line has been drawn, before the next frame begins. The register <code>rLY</code> holds the number of the line being drawn (0 to 153), and lines 144 and above are the VBlank period, so a program can wait for VBlank by reading <code>rLY</code> until it reaches 144.</p>
+<p>Writing directly to the tile map changes what appears on screen. The Game Boy has no block-copy instruction, so we write the loop ourselves. Because the picture processor locks VRAM while it draws, we switch the LCD off while we write, which is only safe to do during VBlank (switching it off at any other time can damage a real console's screen). The register <code>rLCDC</code> is the LCD's main switch: bit 7 turns the whole screen on or off, and the other bits choose which layers and tile pictures are used:</p>
+[[asm]]
+; Fill the Game Boy tile map with 'A' tiles
+wait_vblank:
+    LDH A, [rLY]
+    CP 144
+    JR C, wait_vblank    ; Wait until VBlank begins
+
+    XOR A
+    LDH [rLCDC], A       ; LCD off: now VRAM can be written freely
+    LD HL, $9800         ; Tile map start
+    LD BC, 32 * 32       ; The map is 32 x 32 tiles
+fill_loop:
+    LD A, 'A'
+    LD [HL+], A          ; Store, then move to the next map position
+    DEC BC
+    LD A, B
+    OR C                 ; 16-bit DEC does not set Z, so test B OR C
+    JR NZ, fill_loop     ; Repeat until BC reaches 0
+
+    LD A, LCDCF_ON | LCDCF_BG8000 | LCDCF_BGON
+    LDH [rLCDC], A       ; LCD back on
+[[/asm]]
+<p>Two details in the listing. <code>LCDCF_ON | LCDCF_BG8000 | LCDCF_BGON</code> combines three named bit values into one byte: the <code>|</code> means OR, and the assembler works it out while assembling (the result is $91). And look at the hardware-register lines:  <code>LDH A, [rLY]</code> and <code>LDH [rLCDC], A</code>. <strong>LDH</strong> ("load high") is a shortcut for the registers at $FF00 and above. It is a two-byte instruction rather than the three-byte <code>LD A, [$FF44]</code>, and it runs faster too, because the CPU only has to fetch the low byte of the address. The assembler fills in the missing $FF.</p>
+<h3 id="joypad-input">Joypad Input</h3>
+<p>The Game Boy has eight buttons: four action buttons (A, B, Select, Start) and the four directions of the D-pad. They are read through a single register called the joypad register, <code>rP1</code> at $FF00. You first write to it to choose which group of four buttons you want, then read it back:</p>
+[[asm]]
+; Read the buttons (Game Boy)
+; Register $FF00 (rP1): write a 0 in bit 5 to select A, B, Select, Start;
+;                       write a 0 in bit 4 to select Right, Left, Up, Down
+    LD A, %00010000      ; Select A, B, Select, Start
+    LDH [rP1], A
+    LDH A, [rP1]         ; Read twice: the hardware needs a moment to settle
+    LDH A, [rP1]
+    BIT 0, A             ; Test bit 0 (A button)
+    JP Z, a_pressed      ; Bit is 0 when button pressed
+[[/asm]]
+<p>The four low bits of the answer are bit 0 = A (or Right), bit 1 = B (or Left), bit 2 = Select (or Up), and bit 3 = Start (or Down). A 0 bit means the button is down.</p>
+<p class="bold-text">Key Difference: There's no abstraction. You must know the hardware addresses, timing requirements, and data formats for every device you want to use, and in particular when it is safe to touch them. The debug output routines in this guide wrap the details so you don't have to remember them every time.</p>
+</section>
+
+<section id="9-error-handling">
+<h1>9. Error Handling</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="in-high-level-languages-9">In High-Level Languages</h2>
+<p>Try/catch blocks, exceptions, error types, stack traces, recovery mechanisms. Errors propagate up the call stack automatically. You can catch them at appropriate levels and handle gracefully.</p>
+<h2 id="in-game-boy-assembly-7">In Game Boy Assembly</h2>
+<p>There are no exceptions. Error handling means checking for errors explicitly after every operation that might fail, and deciding what to do yourself.</p>
+<h3 id="return-codes">Return Codes</h3>
+<p>The most common pattern is returning status in a register or flag. Here's a division subroutine that checks for divide-by-zero and reports the outcome. It signals an error through the carry flag: a new instruction, <code>SCF</code> ("set carry flag"), switches the flag on when something has gone wrong, and the <code>OR A</code> on the success path switches it off (OR with itself changes nothing in A but clears carry). A caller can then test it with <code>JP C</code>, "jump if carry":</p>
+[[file divide.asm]]
+<p>Here is a caller that checks the result:</p>
+[[asm]]
+; Caller checks the result:
+    CALL divide
+    JP C, handle_error   ; Carry set = error
+    ; Success - display quotient
+    CALL print_number
+    LD A, 13
+    RST $10              ; Newline
+    JP continue
+
+handle_error:
+    LD HL, msg_diverr
+    CALL print_string
+    LD A, 13
+    RST $10              ; Newline
+
+continue:
+
+msg_diverr: DB "Error: div by zero!", 0
+[[/asm]]
+<h3 id="interrupts">Interrupts</h3>
+<p>An <em>interrupt</em> is a signal from the hardware that makes the CPU pause what it is doing, run a short routine (a <em>handler</em>), and then carry on where it left off. They let the hardware tell your program that something has happened, without the program having to keep checking. The Game Boy has five, each with its own fixed entry address:</p>
+<table>
+<thead><tr><th>Interrupt</th><th>Address</th><th>Fires when</th></tr></thead>
+<tbody>
+<tr><td>VBlank</td><td><code>$0040</code></td><td>The screen has finished drawing a frame (about 60 times a second)</td></tr>
+<tr><td>LCD STAT</td><td><code>$0048</code></td><td>A chosen screen line or mode is reached</td></tr>
+<tr><td>Timer</td><td><code>$0050</code></td><td>The hardware timer overflows</td></tr>
+<tr><td>Serial</td><td><code>$0058</code></td><td>A byte has been sent or received on the link cable</td></tr>
+<tr><td>Joypad</td><td><code>$0060</code></td><td>A button is pressed</td></tr>
+</tbody>
+</table>
+<p class="bold-text">All five can be switched off. Interrupts are enabled with <code>EI</code> and disabled with <code>DI</code> (the master switch), and the register <code>rIE</code> at $FFFF chooses which of the five you want. The matching flags in <code>rIF</code> ($FF0F) record which are waiting. The VBlank interrupt, once per frame, is the one games use most.</p>
+<p>Here is a complete interrupt handler. It counts frames: the VBlank interrupt jumps to address $0040, which holds a jump to our routine, and the routine adds one to a counter in RAM and ends with RETI, which returns and re-enables interrupts in a single instruction. A handler must put back every register it changes, so we save and restore AF (the pair made of A and the flags register) with PUSH and POP:</p>
+[[asm]]
+SECTION "VBlank interrupt", ROM0[$40]
+    JP vblank_handler       ; The CPU jumps here at the start of every frame
+
+SECTION "Handlers", ROM0
+vblank_handler:
+    PUSH AF                 ; Preserve every register we touch
+    LD A, [frame_count]
+    INC A
+    LD [frame_count], A     ; frame_count = frame_count + 1
+    POP AF
+    RETI                    ; Return and re-enable interrupts
+
+SECTION "Counters", WRAM0
+frame_count: DS 1
+[[/asm]]
+<p>To switch it on, tell the hardware which interrupt you want, and enable interrupts:</p>
+[[asm]]
+    XOR A
+    LD [frame_count], A     ; Start counting from zero
+    LDH [rIF], A            ; Forget any interrupt already waiting
+    LD A, IEF_VBLANK
+    LDH [rIE], A            ; We want the VBlank interrupt
+    EI                      ; Interrupts on (takes effect after the next instruction)
+[[/asm]]
+<p>Every program so far has ended with <code>HALT</code>, which sleeps until an interrupt arrives. A loop that sleeps until each VBlank is the standard way to wait for the next frame, and it is how you would time an animation:</p>
+[[asm]]
+    LD A, IEF_VBLANK
+    LDH [rIE], A         ; Ask for the VBlank interrupt (we do not need EI just to wake up)
+    LD B, 30             ; Wait for 30 frames - about half a second
+wait_frame:
+    XOR A
+    LDH [rIF], A         ; Forget any interrupt that is already waiting
+    HALT                 ; Sleep until the next VBlank
+    NOP
+    DEC B
+    JR NZ, wait_frame
+[[/asm]]
+<p>The line that clears <code>rIF</code> matters: an interrupt that is already waiting makes HALT skip the sleep altogether. (That is also the "HALT bug" that the NOP after each HALT guards against: if HALT is executed while interrupts are switched off and one is already waiting, the byte after the HALT is executed twice.)</p>
+<p class="bold-text">Key Difference: Unhandled errors don't throw exceptions—they cause undefined behavior. The program might crash, corrupt memory, enter an infinite loop, or appear to work while producing wrong results. Defensive programming isn't optional; it's survival. Use the debug output routines liberally to verify your assumptions.</p>
+</section>
+
+<section id="10-debugging-problem-solving">
+<h1>10. Debugging &amp; Problem-Solving</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="in-high-level-languages-10">In High-Level Languages</h2>
+<p>Debuggers with breakpoints, watches, stack traces. Print statements. Exception messages. Profilers. Memory analyzers. Rich error messages pointing to line numbers.</p>
+<h2 id="in-game-boy-assembly-8">In Game Boy Assembly</h2>
+<p>Debugging is harder but not impossible. You have two main strategies: emulator debugging tools and print-based debugging using the routines from the start of this guide.</p>
+<h3 id="emulator-debugging">Emulator Debugging</h3>
+<p>mGBA, BGB and SameBoy all include a built-in debugger that lets you step through instructions one at a time, set breakpoints at addresses or conditions, inspect and modify registers, view and edit memory, and watch memory locations for changes. They also include viewers that show you the contents of video memory: the tile pictures, the tile map, and the sprites (the small movable pictures that the console can draw on top of the background). When text does not appear on screen, those viewers tell you at once whether the problem is in the font, the map, or the LCD settings. Ask rgblink for a symbol file with <code>-n program.sym</code> (the Makefile in <code>gameboy_examples</code> does), load it in the debugger, and it will show your label names instead of bare addresses.</p>
+<h3 id="print-based-debugging">Print-Based Debugging</h3>
+<p>The debug output routines at the start of this guide are your equivalent of console.log() or print(). Use them to verify your program's behaviour at every step:</p>
+[[asm]]
+; Debugging example: verify a loop counter
+    LD B, 5
+debug_loop:
+    PUSH BC              ; Save B
+    LD A, B
+    CALL print_number    ; Print current counter value
+    LD A, ' '
+    CALL print_char      ; Print space separator
+    POP BC               ; Restore B
+    DEC B
+    JR NZ, debug_loop
+    LD A, 13
+    RST $10              ; Newline
+    ; Should display: 5 4 3 2 1
+[[/asm]]
+<p>You can also use the routines to create simple assertion checks:</p>
+[[file assert_a_equals.asm]]
+<h3 id="common-bug-sources">Common Bug Sources</h3>
+<p>Off-by-one errors in loops (DEC B / JR NZ counts from n to 1, not n-1 to 0)</p>
+<p>Starting a DEC B / JR NZ loop with B = 0: B is decremented before it is tested, so 0 wraps to 255 and the loop runs 256 times, not zero</p>
+<p>Forgetting to preserve registers across subroutine calls</p>
+<p>Stack imbalance (more pushes than pops, or vice versa)</p>
+<p>Little-endian confusion in 16-bit values</p>
+<p>Confusing immediate values with memory addresses: LD A, 10 vs LD A, [10]</p>
+<p>Flag clobbering—an instruction modifies flags you were about to test (and the reverse: 16-bit INC and DEC do <em>not</em> set the Zero flag, so loop on the 16-bit counter with LD A, B / OR C)</p>
+<p>Writing to video memory while the screen is drawing: the write is silently lost, so the picture is wrong but nothing crashes</p>
+<p>Trying to store a variable in ROM (the write is ignored; keep changing data in a WRAM0 section)</p>
+<p class="bold-text">Key Difference: Errors often manifest far from their source. A stack imbalance might not crash until three subroutine returns later. A memory corruption might not be noticed until that memory is read minutes later. Use the print_number and print_string routines frequently during development to catch bugs early.</p>
+</section>
+

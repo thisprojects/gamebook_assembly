@@ -1,0 +1,220 @@
+<section id="1-introduction-setup">
+<h1>1. Introduction &amp; Setup</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="in-high-level-languages">In High-Level Languages</h2>
+<p>You install a runtime or compiler, create a source file, and run a command. Python gives you an interpreter, Node gives you a runtime, C gives you a compiler that produces an executable. The toolchain handles the translation from your text to something the machine understands.</p>
+<h2 id="in-game-boy-assembly-with-rgbds">In Game Boy Assembly with RGBDS</h2>
+<p class="bold-text">You need two things: RGBDS (the assembler toolchain) to translate your mnemonics into machine code, and an emulator to run the result. That's it.</p>
+<p class="bold-text">RGBDS is a cross-assembler for the Game Boy. It is three programs: rgbasm assembles, rgblink links and places the code in a ROM, and rgbfix writes the cartridge header. The result is a .gb file, the same format that is burned into a real cartridge, so everything you build here will also run on real hardware.</p>
+<p class="bold-text">Emulator: For Game Boy development, mGBA is excellent and freely available for all major operating systems, and it has a built-in debugger. SameBoy and BGB are good alternatives. They all load .gb files directly.</p>
+<h2 id="your-workflow">Your Workflow</h2>
+<p>The development cycle is simple. Write your assembly code in a .asm file. Assemble it with RGBDS. Load the resulting .gb file in mGBA. Here is your first complete program, which prints an asterisk. Every Game Boy program in this guide has the same five parts, and this one shows them all:</p>
+<ol>
+<li><code>INCLUDE "hardware.inc"</code>: the names of the hardware settings (see Debug Output Routines).</li>
+<li>A fixed block of lines that you copy unchanged: it marks the place where the console starts running your cartridge.</li>
+<li>Your own code, beginning at a label called <code>Start</code>.</li>
+<li>A few lines at the end, labelled <code>Done</code>, that stop the CPU (a Game Boy program never finishes the way a desktop program does).</li>
+<li><code>INCLUDE "debug_output.asm"</code>: the printing routines.</li>
+</ol>
+[[file first.asm]]
+<p>Walking through it, part by part:</p>
+<p><code>SECTION "Header", ROM0[$100]</code> tells the assembler where to put the lines that follow. A <em>section</em> is a named block of the program; <code>ROM0</code> means it goes in the cartridge ROM, and <code>[$100]</code> says it must start at address $100 (256). That address is where the console starts running your cartridge, once its tiny built-in start-up program (the <em>boot ROM</em>, which scrolls the logo) has finished. There is room for only four bytes there, so we put two instructions: <code>NOP</code> ("no operation": do nothing) and <code>JP Start</code> (<em>jump</em>: carry on from the label <code>Start</code>, like a goto). <code>DS $150 - @, 0</code> fills the rest of the gap, up to address $150, with zeros: <code>DS</code> means "define space", and <code>@</code> means "the address we have reached so far". That gap is where the cartridge header goes; rgbfix writes it for us later.</p>
+<p><code>SECTION "Main", ROM0[$150]</code> starts a second section at $150, and this is where your own code goes. The linker (rgblink) checks that no two sections overlap. The first line there is <code>CALL debug_init</code> to set up the screen. <code>LD A, 42</code> loads the number 42 (the character code of an asterisk) into A, and <code>RST $10</code> prints it, exactly as in the previous section.</p>
+<p>The last three lines are the ending. <code>HALT</code> stops the CPU until a hardware signal called an <em>interrupt</em> arrives (Chapter 9 covers interrupts). We have not asked for any, so the CPU sleeps until the console is switched off. <code>NOP</code> after it is a safety habit that Chapter 9 explains, and <code>JR Done</code> (a short jump back to the label <code>Done</code>) means that even if the CPU wakes up it just goes back to sleep, rather than running on into whatever bytes follow.</p>
+<p>Assemble:</p>
+[[text]]
+rgbasm -I . -o first.o first.asm
+rgblink -o first.gb first.o
+rgbfix -v -p 0xFF first.gb
+[[/text]]
+<p>Then open first.gb in mGBA.</p>
+[[text]]
+mgba first.gb
+[[/text]]
+<p>The ROM starts running at once. You should see an asterisk printed in the top left corner of the screen.</p>
+<p class="bold-text">Key Difference: There's no operating system, and no BASIC to return to. The Game Boy's boot ROM runs once at power-on and then disappears, so when your program reaches the end there is nowhere to <code>RET</code> to. That is why every program ends by parking the CPU in the <code>Done</code> loop.</p>
+</section>
+
+<section id="2-variables-data-types">
+<h1>2. Variables &amp; Data Types</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="in-high-level-languages-2">In High-Level Languages</h2>
+<p>You declare variables with names and types: let count = 0, int age = 25, name = "Alice". The language manages where these values are stored, handles type conversions, and lets you refer to them by name throughout your code.</p>
+<h2 id="in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>There are no variables in the high-level sense. You have two places to store data: registers and memory. That's it.</p>
+<h3 id="registers">Registers</h3>
+<p>The Game Boy's CPU has a small set of registers—tiny, fast storage locations inside the processor itself:</p>
+<p class="bold-text">A (Accumulator): The primary register for arithmetic and logic. Most operations use A as one operand and store results back in A.</p>
+<p class="bold-text">B, C, D, E, H, L: General-purpose 8-bit registers. Can also be paired as BC, DE, and HL for 16-bit values.</p>
+<p class="bold-text">HL: Often used as a pointer to memory. Many instructions work with the memory location that HL points to, written as [HL].</p>
+<p class="bold-text">SP: Stack pointer—points to the current top of the stack.</p>
+<p class="bold-text">PC: Program counter—the address of the next instruction. You don't manipulate this directly; jumps and calls change it.</p>
+<p class="bold-text">F: Flags register—holds the results of comparisons and arithmetic, as a few on/off switches called flags. The important ones are zero (Z, "the last result was 0") and carry (C, "the last result didn't fit in a byte"). Chapter 4 shows how to use them to make decisions.</p>
+<div class="note"><strong>If you know the Z80, what's different?</strong> (Everyone else can skip this box.) The Game Boy CPU has no IX/IY registers, no shadow registers (so no EX or EXX), no IN/OUT instructions (hardware is reached through memory addresses instead), no DJNZ, no LDIR/LDDR block moves, and no 16-bit ADC/SBC. It adds LDH (a short form for the $FF00 hardware area), LD A,[HL+] and LD A,[HL-] (load and step the pointer), SWAP (swap the two halves of a byte), and STOP. This guide points out each difference where it first matters.</div>
+<h3 id="data-types">Data Types</h3>
+<p>There are only two 'types': bytes (8-bit, 0–255) and words (16-bit, 0–65535). A byte can also be read as a <em>signed</em> number, –128 to 127, where a 1 in the leftmost bit means negative; the CPU stores both kinds the same way and it is up to you which you mean. Everything else—strings, arrays, structures—you build yourself from these primitives.</p>
+[[asm]]
+; Defining data in memory
+my_byte:   DB 42            ; Define a single byte with value 42
+my_word:   DW 1000          ; Define a 16-bit word (low byte first)
+my_string: DB "Hello", 0    ; String is just bytes, null-terminated
+my_array:  DB 1, 2, 3, 4, 5 ; Array is just consecutive bytes
+[[/asm]]
+<p>DB means 'define byte', DW means 'define word'. The labels (my_byte, my_word, etc.) are just names for memory addresses—the assembler replaces them with actual numbers. A word takes two bytes, and the Game Boy stores the low byte first: 1000 is $03E8, so DW 1000 stores $E8 and then $03. This order is called <em>little-endian</em>, and you will see it again whenever a 16-bit value is kept in memory.</p>
+<p>A string in assembly is just a sequence of bytes in memory, one per character, with a zero byte at the end to mark where the string finishes. This zero byte is called the <strong>null terminator</strong> — it is how a routine that prints the string knows when to stop. In <code>my_string</code> above, the text in quotes is a shorthand — the assembler converts each character to its character code and stores them as consecutive bytes (72, 101, 108, 108, 111). The <strong>comma</strong> separates items in the DB list, so you can mix quoted strings with individual byte values. The <strong>0</strong> after the comma is a single byte with the value zero — the null terminator. It does not represent the character '0' (which would be code 48); it is literally the value 0.</p>
+<p>There is one important rule about where data lives. Everything defined with DB or DW in your code lives in the cartridge ROM, and ROM cannot be written to. That is perfect for constants, strings and lookup tables. For anything your program needs to <em>change</em> (a score, a counter, a cursor position) you must reserve space in the console's RAM, which starts at address $C000, using a <code>WRAM0</code> section and the <code>DS</code> directive:</p>
+[[asm]]
+SECTION "Variables", WRAM0
+my_counter: DS 1            ; One byte of RAM that we are allowed to change
+[[/asm]]
+<h3 id="loading-and-storing">Loading and Storing</h3>
+[[asm]]
+; Loading values
+    LD A, 10             ; Load immediate value 10 into A
+    LD B, A              ; Copy A into B
+    LD A, [my_byte]      ; Load value FROM memory address my_byte into A
+    LD HL, my_array      ; Load the ADDRESS of my_array into HL
+    LD A, [HL]           ; Load the byte that HL points to into A
+
+; Storing values (the target must be RAM, not ROM)
+    LD [my_counter], A   ; Store A's value TO memory address my_counter
+    LD HL, my_counter
+    LD [HL], 99          ; Store 99 at the address HL points to
+    LD A, [HL+]          ; Load the byte HL points to, THEN add 1 to HL
+[[/asm]]
+<p><strong>Square brackets mean "the contents at this address".</strong> This is the single most important syntax rule in Game Boy assembly. Without brackets, you get the address itself; with brackets, you get the value stored at that address. Compare these two instructions:</p>
+[[asm]]
+    LD A, [my_byte]      ; A = the value stored at my_byte's address (e.g. 42)
+    LD HL, my_byte       ; HL = the address of my_byte itself (e.g. $0300)
+[[/asm]]
+<p>In the first line, the brackets tell the CPU: "go to the address labelled <code>my_byte</code>, read the byte stored there, and put it in A." In the second line, there are no brackets, so the CPU simply loads the address number into HL — it never looks at what is stored there. This is the difference between reading a value from a postbox and writing down the postbox's location. Both are useful, but mixing them up is one of the most common beginner mistakes in Game Boy programming.</p>
+<p>Notice the last line of the first listing: <code>LD A, [HL+]</code>. It reads the byte and moves the pointer on in a single instruction, which is exactly what you need when walking through an array or a string. Its mirror image <code>LD [HL+], A</code> stores and advances, and <code>[HL-]</code> steps backwards. (The Z80 has no such instruction.)</p>
+<p>To verify that your loads and stores are working, use the debug routines:</p>
+[[asm]]
+    LD A, [my_byte]      ; Load the value
+    CALL print_number    ; Display it on screen - should show 42
+    LD A, 13
+    RST $10              ; Newline
+[[/asm]]
+<p class="bold-text">Key Difference: There's no type checking, no automatic conversion, no protection. If you write a 16-bit value to an 8-bit location, you'll overwrite whatever's next in memory. You must track what's stored where. And if you try to store to an address in ROM, nothing happens at all—the write is silently ignored.</p>
+
+<h3 id="loading-storing-example">Try It Yourself</h3>
+<p>Copy the program below into VS Code, save it as <code>variables.asm</code> in the same folder as <code>debug_output.asm</code>, then assemble and run it. It loads and displays each of the data types defined above so you can see exactly what gets stored where. It uses the two remaining debug routines from the Debug Output Routines section:</p>
+<ul>
+<li><code>print_number</code> prints the number in A as ordinary decimal digits: load 42 into A, <code>CALL print_number</code>, and "42" appears.</li>
+<li><code>print_string</code> prints a string. It needs to be told where the string is, so you put the string's <em>address</em> in HL (the label of the string, loaded without brackets) and <code>CALL print_string</code>. It prints characters until it reaches the null terminator.</li>
+</ul>
+<p>For the array, we point HL at the first element and step through it with <code>INC HL</code> (<code>INC</code> means "increment": add one, so <code>INC HL</code> moves the pointer on to the next byte). There is one trap. The routines we call are allowed to use HL internally and leave it pointing somewhere else, so a pointer you stored in HL may be gone by the time the call returns. The fix is to <em>preserve</em> HL across each call using the stack. The stack is a scratch area of memory where you can set a value aside and get it back later (Chapter 6 covers it fully). <code>PUSH HL</code> sets HL's current value aside before the call, and <code>POP HL</code> gets it back afterwards. Then <code>INC HL</code> advances the pointer to the next element as normal. This push-call-pop pattern is the standard technique for protecting a register across a subroutine call that might clobber it.</p>
+[[file variables.asm]]
+<p>Expected output on screen:</p>
+[[text]]
+my_byte:   42
+my_string: Hello
+my_array:  1 2 3 4 5
+[[/text]]
+</section>
+
+<section id="3-operators-expressions">
+<h1>3. Operators &amp; Expressions</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="in-high-level-languages-3">In High-Level Languages</h2>
+<p>Expressions combine values with operators: result = (a + b) * c - d / 2. The compiler figures out the order of operations, allocates temporary storage, and generates all necessary instructions automatically.</p>
+<h2 id="in-game-boy-assembly-2">In Game Boy Assembly</h2>
+<p>There are no expressions. Each operation is a separate instruction, and results almost always go into the accumulator (A). To compute (a + b) * c, you must break it down step by step.</p>
+<h3 id="arithmetic-instructions">Arithmetic Instructions</h3>
+[[asm]]
+; Addition
+    ADD A, B             ; A = A + B
+    ADD A, 5             ; A = A + 5
+
+; Subtraction
+    SUB B                ; A = A - B
+    SUB 10               ; A = A - 10
+
+; Increment / Decrement
+    INC A                ; A = A + 1
+    DEC B                ; B = B - 1
+    INC HL               ; HL = HL + 1 (16-bit increment)
+[[/asm]]
+<h3 id="logic-instructions">Logic Instructions</h3>
+<p>These instructions work on individual bits. Each bit in A is compared with the corresponding bit in the other register, one bit at a time. The examples below use the <code>%</code> prefix to write numbers in binary (e.g. <code>%00000001</code> is the value 1, with each digit representing one bit). This makes it easy to see exactly which bits are being affected:</p>
+<p><strong>Bitwise vs logical — an important distinction.</strong> In a high-level language, <code>AND</code> and <code>OR</code> are usually <em>logical</em> operators that treat entire values as either true or false: <code>3 AND 5</code> evaluates to true because both values are non-zero. On the Game Boy, AND and OR are <em>bitwise</em> — they operate on each of the 8 bits independently. This means the result depends on the bit patterns, not the overall values. For example, if A = 3 and B = 5:</p>
+[[asm]]
+; A = 3        →  00000011
+; B = 5        →  00000101
+; AND B result →  00000001  (only bit 0 is 1 in both — result is 1, not 3 or 5)
+; OR  B result →  00000111  (bits 0, 1, and 2 are set in at least one — result is 7)
+[[/asm]]
+<p>If you come from Python or C and expect <code>AND</code> to mean "are both of these things true?", you will get unexpected results. The CPU does not care whether a value is "truthy" — it lines up the bits and compares them one by one. There is no logical AND or OR. You get bitwise operations only, and they are powerful once you think in terms of individual bits rather than whole numbers.</p>
+[[asm]]
+    AND B                ; A = A AND B
+    OR C                 ; A = A OR C
+    XOR A                ; A = A XOR A (quick way to set A to 0)
+    CPL                  ; A = NOT A (flip every bit)
+[[/asm]]
+<p><strong>AND</strong> — a bit in the result is 1 only if that bit is 1 in <em>both</em> inputs. If either bit is 0, the result is 0. This is useful for masking out bits you don't care about. For example, AND with 00001111 keeps only the lower four bits and clears the upper four.</p>
+[[asm]]
+    ; Keep only the lower four bits of a value
+    LD A, %10110110      ; A = 10110110
+    AND %00001111        ; Mask: keep the four right-hand bits, clear the four left-hand bits
+    ; A is now %00000110 (6)
+[[/asm]]
+<p><strong>OR</strong> — a bit in the result is 1 if that bit is 1 in <em>either</em> input (or both). The only way a bit ends up 0 is if it is 0 in both inputs. This is useful for setting specific bits without disturbing the others.</p>
+[[asm]]
+    ; Suppose a byte of memory holds eight on/off settings, one per bit,
+    ; and HL points at it.  To switch setting number 5 on without changing
+    ; the other seven:
+    LD A, [HL]           ; Read the current settings byte
+    OR %00100000         ; Force bit 5 to 1 — setting 5 is now on
+    LD [HL], A           ; Write it back — the other seven settings are unchanged
+[[/asm]]
+<p><strong>XOR</strong> — a bit in the result is 1 if the two inputs are <em>different</em>, and 0 if they are the same. This is why XOR A with itself always gives 0 — every bit matches, so every result bit is 0. It is the fastest way to clear A on the Game Boy (one byte long and the quickest instruction there is, versus two bytes for LD A, 0). XOR is also useful for toggling bits on and off:</p>
+[[asm]]
+    ; Toggle setting number 6 — if it was on, turn it off;
+    ; if it was off, turn it on:
+    LD A, [HL]           ; Read the current settings byte
+    XOR %01000000        ; Flip bit 6 — toggles that setting
+    LD [HL], A           ; Write it back
+[[/asm]]
+<p><strong>CPL</strong> — flips every bit in A. Every 1 becomes 0 and every 0 becomes 1. For example, if A is 00110101, after CPL it becomes 11001010. One common use is inverting a picture so it shows up against any background:</p>
+[[asm]]
+    ; A byte can hold one row of eight pixels, one bit per pixel.
+    ; To get the negative image of the row:
+    LD A, [HL]           ; Read a byte of picture data
+    CPL                  ; Invert it — every pixel flips
+    ; Now A holds the negative image of that row
+[[/asm]]
+<p>The Game Boy also has an instruction that the Z80 lacks: <strong>SWAP</strong>, which exchanges the top four bits of a register with the bottom four. <code>SWAP A</code> turns %11110000 into %00001111, and %00010011 into %00110001. It is handy for splitting a byte into two hexadecimal digits.</p>
+<h3 id="building-an-expression">Building an Expression</h3>
+<p>Let's compute result = (10 + 5) * 2 and verify the answer:</p>
+[[asm]]
+    LD A, 10             ; A = 10
+    LD B, 5              ; B = 5
+    ADD A, B             ; A = 10 + 5 = 15
+    ADD A, A             ; A = 15 * 2 = 30 (adding to itself)
+
+    ; Verify the result using debug output
+    CALL print_number    ; Should display 30
+[[/asm]]
+<p>Notice there's no multiply instruction. For multiplying by 2, you add the value to itself, as above. For general multiplication, you must implement it with loops (Chapter 5) or lookup tables.</p>
+<p class="bold-text">Key Difference: The Game Boy CPU has no MUL or DIV instructions. Multiplication and division must be implemented in software, typically through repeated addition/subtraction. This is why early games often used sizes and speeds that were easy to build from doubling.</p>
+
+<h3 id="bitwise-try-it">Try It Yourself</h3>
+<p>Copy the program below into VS Code, save it as <code>bitwise.asm</code> alongside <code>debug_output.asm</code>, then assemble and run it. Rather than just printing numbers, this example uses AND and OR to directly manipulate a <strong>hardware register</strong> — producing a visible effect on screen.</p>
+<p>A hardware register is a byte of memory that is wired straight to part of the console. Writing to it changes what the hardware does, and you read and write it with the same <code>LD</code> instruction as any variable. The one we use here is called <code>rBGP</code> (the name comes from hardware.inc), the <em>background palette</em>. Everything on the Game Boy screen is made of dots that each have a colour number from 0 to 3, and the palette says which of the four shades the display actually shows for each colour number: 0 is the lightest and 3 the darkest. The palette packs four 2-bit numbers into one byte:</p>
+[[asm]]
+; Bit 7   Bit 6   Bit 5   Bit 4   Bit 3   Bit 2   Bit 1   Bit 0
+; Colour 3 shade  Colour 2 shade  Colour 1 shade  Colour 0 shade
+;
+; Colour 3 — the dots that make up the letters when text is printed
+; Colour 0 — the empty background
+; A shade is 0 (lightest), 1, 2 or 3 (darkest)
+[[/asm]]
+<p>The debug routines set the palette to <code>%11100100</code>, which gives colour 0 the shade 0 (white) and colour 3 the shade 3 (black): black letters on a white screen. This is exactly the kind of problem AND and OR are designed for. <strong>OR</strong> sets specific bits to 1 without touching anything else — here it will force the two lowest bits to 1, so the background becomes shade 3, black. <strong>AND</strong> clears specific bits to 0 without touching anything else — here it will clear the two highest bits, so the letters become shade 0, white. The four middle bits, the shades of colours 1 and 2, are never disturbed because they are not part of either mask.</p>
+[[file bitwise.asm]]
+<p>You should see <strong>INVERT!</strong> appear in the top left of the screen in white letters on a black background. First the text was printed in black on white; OR then turned the background black (so for a moment the black letters vanished into it), and AND finally turned the letters white. Both effects come from changing just two bits in one byte.</p>
+</section>
+

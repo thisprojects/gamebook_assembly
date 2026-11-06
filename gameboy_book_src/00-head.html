@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>An Introduction to Game Boy Assembly Language: A Guide for High-Level Programmers</title>
+<style>
+/* The four shades of the original Game Boy LCD, plus two extra tints for readable text.
+   Every text/background pair below is checked for WCAG AA contrast (4.5:1) by gameboy_tests/test_lib.py. */
+:root {
+    --lcd-lightest: #9bbc0f;
+    --lcd-light: #8bac0f;
+    --lcd-dark: #306230;
+    --lcd-darkest: #0f380f;
+    --bezel: #4b4d5e;
+
+    --bg: #9bbc0f;            /* page: the lightest LCD green */
+    --surface: #adcb2c;       /* panels: a slightly paler green */
+    --text: #0f380f;          /* body text: the darkest LCD green */
+    --text-dim: #214a18;
+    --heading: #0f380f;
+    --rule: #306230;
+    --link: #0b2e0b;
+
+    --code-bg: #0f380f;       /* code blocks: an inverted screen */
+    --code-border: #306230;
+    --code-text: #d3eb78;
+    --code-comment: #9bbc0f;
+    --code-keyword: #f2fba8;
+    --code-label: #c8e85a;
+    --code-string: #b5d842;
+    --code-number: #e4f58e;
+    --code-directive: #a9cf3a;
+    --inline-code-bg: #0f380f;
+    --inline-code-text: #d3eb78;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: 'Courier New', Courier, 'Lucida Console', monospace;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+}
+h1, h2, h3 { color: var(--heading); margin-top: 2.5rem; margin-bottom: 1rem; letter-spacing: 0.02em; }
+h1 { font-size: 2rem; border-bottom: 4px solid var(--rule); padding-bottom: 0.5rem; }
+h2 { font-size: 1.5rem; border-bottom: 2px dashed var(--rule); padding-bottom: 0.3rem; }
+h3 { font-size: 1.2rem; }
+h3::before { content: "\25B6\00a0"; }   /* a little menu cursor */
+p { margin-bottom: 1rem; }
+ul, ol { margin: 0 0 1rem 1.5rem; }
+li { margin-bottom: 0.3rem; }
+strong { font-weight: 700; }
+.title-block {
+    text-align: center;
+    padding: 2.5rem 1rem 1.5rem;
+    margin-bottom: 2rem;
+    background: var(--bezel);
+    border-radius: 14px 14px 56px 14px;
+    box-shadow: 0 4px 0 #2d2f3b;
+}
+.title-block .screen {
+    background: var(--lcd-lightest);
+    border: 6px solid #2d2f3b;
+    border-radius: 6px;
+    margin: 0 auto;
+    max-width: 640px;
+    padding: 1.5rem 1rem;
+    box-shadow: inset 0 0 0 3px var(--lcd-light);
+}
+.title-block h1 { border: none; font-size: 2.2rem; margin-top: 0; color: var(--lcd-darkest); }
+.title-block .subtitle { font-size: 1.1rem; color: var(--text-dim); margin-top: 0.5rem; }
+.title-block .assembler { font-size: 0.9rem; color: var(--text); margin-top: 1rem; font-weight: 700; }
+.title-block .bezel-text { color: #ffffff; font-size: 0.8rem; letter-spacing: 0.15em; margin-top: 1rem; }
+nav#toc {
+    background: var(--surface);
+    border: 3px solid var(--rule);
+    border-radius: 6px;
+    padding: 1.5rem 2rem;
+    margin-bottom: 3rem;
+}
+nav#toc h2 { margin-top: 0; }
+nav#toc ul { list-style: none; margin-left: 0; padding-left: 0; }
+nav#toc > ul > li { margin-bottom: 0.4rem; }
+nav#toc ul ul { padding-left: 1.5rem; }
+nav#toc ul ul li { margin-bottom: 0.2rem; }
+a { color: var(--link); text-decoration: underline; }
+a:hover, a:focus { background: var(--lcd-darkest); color: var(--lcd-lightest); }
+pre {
+    background: var(--code-bg);
+    border: 3px solid var(--code-border);
+    border-radius: 6px;
+    padding: 1rem 1.2rem;
+    overflow-x: auto;
+    margin-bottom: 1.2rem;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+code {
+    font-family: 'Courier New', Courier, 'Lucida Console', monospace;
+    background: var(--inline-code-bg);
+    color: var(--inline-code-text);
+    padding: 0 0.3em;
+    border-radius: 3px;
+}
+pre code { background: none; color: var(--code-text); padding: 0; }
+kbd { background: var(--lcd-darkest); color: var(--lcd-lightest); padding: 0 0.35em; border-radius: 3px; font-family: inherit; }
+.comment { color: var(--code-comment); }
+.keyword { color: var(--code-keyword); font-weight: 700; }
+.label { color: var(--code-label); text-decoration: underline; }
+.string { color: var(--code-string); }
+.number { color: var(--code-number); }
+.directive { color: var(--code-directive); font-weight: 700; }
+.bold-text { font-weight: 700; }
+.note {
+    background: var(--surface);
+    border-left: 8px solid var(--rule);
+    padding: 0.8rem 1rem;
+    margin-bottom: 1.2rem;
+}
+.back-to-top {
+    display: inline-block;
+    margin-top: 0.3rem;
+    margin-bottom: 1rem;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+}
+section { margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: 2px solid var(--rule); }
+section:last-child { border-bottom: none; }
+table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; }
+th { text-align: left; padding: 0.5rem; color: var(--heading); border-bottom: 3px solid var(--rule); }
+td { padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+tr.highlight-row { background: var(--surface); }
+@media (max-width: 600px) { body { padding: 1rem 0.8rem; } .title-block h1 { font-size: 1.6rem; } }
+</style>
+</head>
+<body>
+
+<div class="title-block">
+<div class="screen">
+<h1>An Introduction to Game Boy Assembly Language</h1>
+<div class="subtitle">A Guide for High-Level Programmers</div>
+<div class="assembler">Game Boy edition of the Z80 guide by Norbert of Norbsoft</div>
+</div>
+<div class="bezel-text">DOT MATRIX &middot; 160 &times; 144 &middot; 4 SHADES</div>
+</div>
+
+<nav id="toc">
+<h2>Contents</h2>
+<ul>
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#debug-output-routines">Debug Output Routines</a></li>
+<ul>
+<li><a href="#setting-up-editor">Setting Up Your Editor</a></li>
+<li><a href="#using-the-routines">Using the Routines</a></li>
+</ul>
+<li><a href="#1-introduction-setup">1. Introduction &amp; Setup</a></li>
+<ul>
+<li><a href="#in-high-level-languages">In High-Level Languages</a></li>
+<li><a href="#in-game-boy-assembly-with-rgbds">In Game Boy Assembly with RGBDS</a></li>
+<li><a href="#your-workflow">Your Workflow</a></li>
+</ul>
+<li><a href="#2-variables-data-types">2. Variables &amp; Data Types</a></li>
+<ul>
+<li><a href="#in-high-level-languages-2">In High-Level Languages</a></li>
+<li><a href="#in-game-boy-assembly">In Game Boy Assembly</a></li>
+<ul>
+<li><a href="#registers">Registers</a></li>
+<li><a href="#data-types">Data Types</a></li>
+<li><a href="#loading-and-storing">Loading and Storing</a></li>
+</ul></ul>
+<li><a href="#3-operators-expressions">3. Operators &amp; Expressions</a></li>
+<ul>
+<li><a href="#in-high-level-languages-3">In High-Level Languages</a></li>
+<li><a href="#in-game-boy-assembly-2">In Game Boy Assembly</a></li>
+<ul>
+<li><a href="#arithmetic-instructions">Arithmetic Instructions</a></li>
+<li><a href="#logic-instructions">Logic Instructions</a></li>
+<li><a href="#building-an-expression">Building an Expression</a></li>
+</ul></ul>
+<li><a href="#4-control-flow-conditionals">4. Control Flow: Conditionals</a></li>
+<ul>
+<li><a href="#in-high-level-languages-4">In High-Level Languages</a></li>
+<li><a href="#in-game-boy-assembly-3">In Game Boy Assembly</a></li>
+<ul>
+<li><a href="#the-flags-register">The Flags Register</a></li>
+<li><a href="#conditional-jumps">Conditional Jumps</a></li>
+<li><a href="#comparison">Comparison</a></li>
+<li><a href="#building-an-if-else">Building an If/Else</a></li>
+</ul></ul>
+<li><a href="#5-control-flow-loops">5. Control Flow: Loops</a></li>
+<ul>
+<li><a href="#in-high-level-languages-5">In High-Level Languages</a></li>
+<li><a href="#in-game-boy-assembly-4">In Game Boy Assembly</a></li>
+<ul>
+<li><a href="#the-djnz-instruction">Counted Loops</a></li>
+<li><a href="#while-loop">While Loop</a></li>
+<li><a href="#iterating-over-an-array">Iterating Over an Array</a></li>
+</ul></ul>
+<li><a href="#6-functions">6. Functions</a></li>
+<ul>
+<li><a href="#in-high-level-languages-6">In High-Level Languages</a></li>
+<li><a href="#in-game-boy-assembly-5">In Game Boy Assembly</a></li>
+<ul>
+<li><a href="#basic-subroutine">Basic Subroutine</a></li>
+<li><a href="#the-stack">The Stack</a></li>
+<li><a href="#parameter-passing-conventions">Parameter Passing Conventions</a></li>
+</ul></ul>
+<li><a href="#7-data-structures">7. Data Structures</a></li>
+<ul>
+<li><a href="#in-high-level-languages-7">In High-Level Languages</a></li>
+<li><a href="#in-game-boy-assembly-6">In Game Boy Assembly</a></li>
+<ul>
+<li><a href="#arrays">Arrays</a></li>
+<li><a href="#structures">Structures</a></li>
+<li><a href="#strings">Strings</a></li>
+</ul></ul>
+<li><a href="#8-input-output">8. Input &amp; Output</a></li>
+<ul>
+<li><a href="#in-high-level-languages-8">In High-Level Languages</a></li>
+<li><a href="#in-game-boy-assembly-on-the-game-boy">In Game Boy Assembly on the Game Boy</a></li>
+<ul>
+<li><a href="#library-routines-for-screen-output">Library Routines for Screen Output</a></li>
+<li><a href="#memory-mapped-i-o">Memory-Mapped I/O</a></li>
+<li><a href="#joypad-input">Joypad Input</a></li>
+</ul></ul>
+<li><a href="#9-error-handling">9. Error Handling</a></li>
+<ul>
+<li><a href="#in-high-level-languages-9">In High-Level Languages</a></li>
+<li><a href="#in-game-boy-assembly-7">In Game Boy Assembly</a></li>
+<ul>
+<li><a href="#return-codes">Return Codes</a></li>
+<li><a href="#interrupts">Interrupts</a></li>
+</ul></ul>
+<li><a href="#10-debugging-problem-solving">10. Debugging &amp; Problem-Solving</a></li>
+<ul>
+<li><a href="#in-high-level-languages-10">In High-Level Languages</a></li>
+<li><a href="#in-game-boy-assembly-8">In Game Boy Assembly</a></li>
+<ul>
+<li><a href="#emulator-debugging">Emulator Debugging</a></li>
+<li><a href="#print-based-debugging">Print-Based Debugging</a></li>
+<li><a href="#common-bug-sources">Common Bug Sources</a></li>
+</ul></ul>
+<li><a href="#11-a-complete-project-verified-counter">11. A Complete Project: Verified Counter</a></li>
+<li><a href="#rst-instructions-and-library-routines">12. RST Instructions &amp; Library Routines</a></li>
+<ul>
+<li><a href="#rst-restart-instructions">RST (Restart) Instructions</a></li>
+<li><a href="#the-rst-table">The RST Table</a></li>
+<li><a href="#common-library-routines">Common Library Routines</a></li>
+<ul>
+<li><a href="#screen-and-output">Screen &amp; Output</a></li>
+<li><a href="#keyboard-and-input">Buttons &amp; Input</a></li>
+<li><a href="#sound">Sound</a></li>
+</ul>
+<li><a href="#practical-examples">Practical Examples</a></li>
+</ul>
+<li><a href="#conclusion-what-you-gain">Conclusion: What You Gain</a></li>
+<ul>
+<li><a href="#quick-reference-rgbds-workflow">Quick Reference: RGBDS Workflow</a></li>
+<li><a href="#further-resources">Further Resources</a></li>
+</ul>
+<li><a href="#appendix-debug-output-routine">Appendix 1: Debug Output Routines</a></li>
+<ul>
+<li><a href="#the-three-files">The Three Files</a></li>
+<li><a href="#debug-init">debug_init</a></li>
+<li><a href="#debug-print-char">print_char</a></li>
+<li><a href="#debug-print-string">print_string</a></li>
+<li><a href="#debug-print-number">print_number</a></li>
+<li><a href="#how-to-use-it">How to Use It</a></li>
+</ul>
+</ul>
+</nav>
+

@@ -1,0 +1,166 @@
+<section id="6-functions">
+<h1>6. Functions</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="in-high-level-languages-6">In High-Level Languages</h2>
+<p>Functions have names, parameters, return values, local variables, and scope. The language manages the call stack, passes arguments, and returns values according to well-defined conventions.</p>
+<h2 id="in-game-boy-assembly-5">In Game Boy Assembly</h2>
+<p>Functions are called 'subroutines'. CALL pushes the return address onto the stack and jumps. RET pops that address and returns. Everything else—parameters, return values, local storage—is your responsibility.</p>
+<h3 id="basic-subroutine">Basic Subroutine</h3>
+[[asm]]
+; Main code
+    LD A, 5              ; Set up parameter in A
+    CALL double_it       ; Call subroutine
+    CALL print_number    ; Display result - should show 10
+    LD A, 13
+    RST $10              ; Newline
+
+; Subroutine: doubles the value in A
+double_it:
+    ADD A, A             ; A = A * 2
+    RET                  ; Return to caller
+[[/asm]]
+<h3 id="the-stack">The Stack</h3>
+<p>The stack is a region of memory that grows downward. SP (stack pointer) points to the top. After the boot ROM finishes, SP holds $FFFE, the very top of the console's fast internal RAM, so the stack grows down from there. PUSH adds values, POP removes them. You can push and pop the register pairs AF (the A register together with the flags), BC, DE and HL:</p>
+[[asm]]
+    PUSH BC              ; Save BC on stack (SP decreases by 2)
+    PUSH DE              ; Save DE
+    ; ... do work that modifies BC and DE ...
+    POP DE               ; Restore DE (LIFO order!)
+    POP BC               ; Restore BC
+[[/asm]]
+<p>This is how you preserve registers across subroutine calls. If your subroutine uses BC but the caller needs it preserved, push it at the start and pop it before returning.</p>
+<h3 id="parameter-passing-conventions">Parameter Passing Conventions</h3>
+<p>There's no enforced convention. Common approaches include:</p>
+<p class="bold-text">Registers: Put parameters in specific registers before CALL. Fast and simple for few parameters.</p>
+<p class="bold-text">Stack: PUSH parameters before CALL, pop them in the subroutine. More flexible but slower.</p>
+<p class="bold-text">Fixed memory: Store parameters at known addresses in RAM. Simple but not re-entrant.</p>
+[[asm]]
+; Example: pass two parameters via registers
+; add_numbers: adds B and C, returns result in A
+    LD B, 10
+    LD C, 20
+    CALL add_numbers
+    CALL print_number    ; Display result - should show 30
+    LD A, 13
+    RST $10              ; Newline
+
+add_numbers:
+    LD A, B
+    ADD A, C
+    RET
+[[/asm]]
+<p class="bold-text">Key Difference: There's no scope, no automatic cleanup, no type safety. If a subroutine corrupts a register the caller was using, the bug may manifest far from its cause. Documentation and discipline replace compiler enforcement.</p>
+</section>
+
+<section id="7-data-structures">
+<h1>7. Data Structures</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="in-high-level-languages-7">In High-Level Languages</h2>
+<p>Arrays, lists, dictionaries, objects, tuples—rich data structures with automatic bounds checking, dynamic resizing, and convenient access syntax.</p>
+<h2 id="in-game-boy-assembly-6">In Game Boy Assembly</h2>
+<p>Everything is bytes in memory. Arrays are contiguous bytes. Structures are memory layouts you document and maintain manually. Pointers are just 16-bit values in register pairs.</p>
+<h3 id="arrays">Arrays</h3>
+<p>An array is just a block of consecutive bytes in memory. You can define one using <strong>DB</strong> with a list of values, as we have already seen. But if you want to reserve space without setting initial values — for example, a buffer to fill in later — you use <strong>DS</strong> (Define Space) in a RAM section. DS tells the assembler to set aside a number of bytes. It does not create a new data type; it simply reserves empty room in memory. (In RAM the bytes are not guaranteed to be zero when the console starts, so clear them yourself if it matters.)</p>
+[[asm]]
+; Define an array of 10 bytes in RAM, to fill in later
+SECTION "Scores", WRAM0
+scores: DS 10            ; DS = Define Space (reserves 10 bytes)
+
+; Or define a read-only array with initial values, in the ROM
+SECTION "Tables", ROM0
+primes: DB 2, 3, 5, 7, 11, 13, 17, 19, 23, 29
+[[/asm]]
+<p>The <code>primes</code> array is laid out in memory as 10 consecutive bytes. If <code>primes</code> starts at address $0400, it looks like this:</p>
+[[asm]]
+; Address  Index  Value
+; $0400    [0]    2
+; $0401    [1]    3
+; $0402    [2]    5
+; $0403    [3]    7
+; $0404    [4]    11
+; ...and so on
+[[/asm]]
+<p>To access a specific element, we need to calculate its address: the start of the array plus the index. In a high-level language you would write <code>primes[3]</code> to get the fourth element (7). In assembly, we do the same calculation manually — but there is a catch. The CPU has no instruction to add an 8-bit register to HL. <code>ADD HL, DE</code> exists, but <code>ADD HL, B</code> does not. So we must put our index into a 16-bit register pair (DE) first, with D set to 0 since our index is small enough to fit in the low byte alone:</p>
+[[asm]]
+; Access element 3 of the primes array (0-based, so this is the fourth value)
+    LD B, 3              ; B = the index we want
+    LD HL, primes        ; HL = address of the first element (e.g. $0400)
+    LD D, 0              ; D = 0 (high byte of index, zero because index < 256)
+    LD E, B              ; E = 3 (low byte of index — now DE = 3)
+    ADD HL, DE           ; HL = $0400 + 3 = $0403
+    LD A, [HL]           ; Read the byte at address $0403 — A = 7
+[[/asm]]
+<h3 id="structures">Structures</h3>
+<p>In a high-level language, you might group related data together using a class or struct:</p>
+[[asm]]
+; High-level language equivalent
+; class Player {
+;     x = 0        (1 byte)
+;     y = 0        (1 byte)
+;     health = 0   (1 byte)
+;     score = 0    (2 bytes)
+;     lives = 0    (1 byte)
+; }
+[[/asm]]
+<p>The CPU has no concept of classes, structs, or objects. But we can achieve the same thing by reserving a block of bytes and deciding which byte means what. A "structure" in assembly is just a convention — a documented agreement that "byte 0 is the x position, byte 1 is the y position" and so on. The CPU does not enforce this; it is entirely up to you to read and write the correct bytes.</p>
+<p>First, we define the layout using <strong>EQU</strong> (short for "equals"; RGBDS writes it as <code>DEF name EQU value</code>). EQU gives a name to a number — it does not reserve any memory or generate any code. It simply tells the assembler "wherever you see PLAYER_X, substitute 0" and so on. This makes the code readable instead of being full of mystery numbers:</p>
+[[asm]]
+; Player structure layout: 6 bytes total
+DEF PLAYER_X     EQU 0    ; Offset 0: x position (1 byte)
+DEF PLAYER_Y     EQU 1    ; Offset 1: y position (1 byte)
+DEF PLAYER_HP    EQU 2    ; Offset 2: health (1 byte)
+DEF PLAYER_SCORE EQU 3    ; Offset 3: score (2 bytes)
+DEF PLAYER_LIVES EQU 5    ; Offset 5: lives (1 byte)
+
+SECTION "Player data", WRAM0
+player1: DS 6             ; Reserve 6 bytes of RAM for one player
+[[/asm]]
+<p>If <code>player1</code> starts at address $C100, the memory looks like this:</p>
+[[asm]]
+; Address  Offset  Field
+; $C100    +0      x position
+; $C101    +1      y position
+; $C102    +2      health
+; $C103    +3      score (low byte)
+; $C104    +4      score (high byte)
+; $C105    +5      lives
+[[/asm]]
+<p>To reach a field we need the address of the structure plus the field's offset. We use HL as the pointer, and we have two ways to get the offset in. (Some processors have a special index register that adds the offset in a single instruction; the Game Boy's CPU does not.) If the structure's address is fixed, the assembler can do the addition for us: in <code>player1 + PLAYER_HP</code> the "+" is calculated while assembling, so the instruction simply contains the finished address:</p>
+[[asm]]
+; Read a field — equivalent to: hp = player1.health
+    LD HL, player1 + PLAYER_HP ; PLAYER_HP is 2, so HL = the address of player1 plus 2
+    LD A, [HL]           ; Read the health
+
+; Modify it — equivalent to: player1.health = player1.health - 1
+    DEC A                ; Subtract 1 from health
+    LD [HL], A           ; Write the new value back (HL still points at it)
+
+; Write a field — equivalent to: player1.x = 100
+    LD HL, player1 + PLAYER_X
+    LD [HL], 100         ; PLAYER_X is 0, so this writes to the first byte
+[[/asm]]
+<p>If the address is not known until the program runs (say, you have several players and a pointer to the current one), put the base address in HL and add the offset yourself. The <code>ADD HL, DE</code> trick from the arrays section works here too:</p>
+[[asm]]
+; HL = pointer to the current player.  Read its health.
+    LD DE, PLAYER_HP
+    ADD HL, DE           ; HL now points at the health byte
+    LD A, [HL]
+[[/asm]]
+<p>Without EQU, those lines would be <code>LD HL, player1 + 2</code> — correct but meaningless to anyone reading the code. The named constants make it clear that we are setting the x position, not just writing to "offset 0." This is as close to <code>player1.x = 100</code> as assembly gets.</p>
+<h3 id="strings">Strings</h3>
+<p>Strings are just arrays of bytes with a terminator. Since we have the debug routines, printing them is straightforward:</p>
+[[asm]]
+; Null-terminated string
+greeting: DB "Hello, World!", 0
+
+; Print using our debug routine
+    LD HL, greeting
+    CALL print_string    ; Displays: Hello, World!
+    LD A, 13
+    RST $10              ; Newline
+[[/asm]]
+<p class="bold-text">Key Difference: No bounds checking whatsoever. Read past the end of an array and you get whatever garbage is in memory. Write past the end and you corrupt other data or code. Buffer overflows are not just possible—they're easy.</p>
+</section>
+
