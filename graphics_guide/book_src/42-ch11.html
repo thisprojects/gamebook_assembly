@@ -1,0 +1,52 @@
+<section>
+<h1 id="11-input-and-a-playable-character">11. Input &amp; a Playable Character</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="11-in-high-level-languages">In High-Level Languages</h2>
+<p>Input arrives as events or as a state you can ask for: <code>if (keyboard.isDown(RIGHT)) player.x += speed</code>. The operating system has already turned the electrical signals into key codes and queued them. The program asks &ldquo;is this key down?&rdquo; and sometimes &ldquo;was it pressed this frame?&rdquo;.</p>
+
+<h2 id="11-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>The Game Boy has no operating system and no event queue. There are eight buttons wired as a matrix, and one register, <code>rP1</code> (<code>$FF00</code>), to read them. You tell the register which <em>group</em> of buttons to connect &mdash; the direction pad or the four buttons &mdash; and then read four bits back.</p>
+<table>
+<tr><th>Write to <code>rP1</code></th><th>Selects</th><th>Bits 3&ndash;0 read back</th></tr>
+<tr><td>bit 4 low</td><td>Direction pad</td><td>Down, Up, Left, Right</td></tr>
+<tr><td>bit 5 low</td><td>Buttons</td><td>Start, Select, B, A</td></tr>
+</table>
+<p>A pressed button reads as <strong>0</strong>, so the routine inverts what it reads. It does this twice, once per group, and joins the results into one byte with one bit per button. The &ldquo;settling&rdquo; reads, three of them in a row, are real: the lines take a moment to change after you select a group.</p>
+[[file joypad.asm]]
+
+<h3 id="11-held-and-pressed">Held and pressed</h3>
+<p>The routine keeps two bytes. <code>wJoy</code> is every button held right now: use it for movement, where holding right should keep you moving. <code>wJoyNew</code> is only the buttons that went down since the previous call. It is worked out by inverting last frame's state and AND-ing it with this frame's: a bit survives only if the button is down now and was <em>not</em> down before. Use it for anything that should happen once per press: jump, fire, a menu choice. Without it, holding the button for twenty frames would do the action twenty times.</p>
+<p>Call <code>read_joypad</code> once per frame, straight after the frame begins, and every part of the program then agrees about which buttons were down on that frame.</p>
+
+<h3 id="11-tall-sprites">Tall sprites</h3>
+<p>A character is usually taller than it is wide. Setting bit 2 of <code>rLCDC</code> (<code>LCDCF_OBJ16</code>) switches every sprite to <strong>8&times;16</strong>: each sprite entry now draws two tiles stacked vertically, the number in the entry and the one after it (the lowest bit of the tile number is ignored, so use an even number). One sprite entry now does what two did, and the hardware's rule of ten sprites per line is easier to live within. The mode applies to all sprites at once; you cannot mix sizes.</p>
+
+<h3 id="11-collision">Walls: looking at the map</h3>
+<p>To keep a character out of walls you need to know what is where. The Game Boy gives you the answer for free, because the world <em>is</em> the tile map. A pixel position (<code>x</code>, <code>y</code>) is on the map square (<code>x / 8</code>, <code>y / 8</code>), and the tile number stored there says what it is. So a collision test is: divide by eight, look up a tile, compare it with the wall tile number. No bounding boxes, no pixel comparison.</p>
+<p>Video memory cannot be read at any moment, and reading it from the main loop would be unsafe, so the program checks against its <em>shadow map</em> in RAM (Chapter 4), which is also what it drew the room from. The player's box is 8 pixels wide and 16 tall, and because no tile is bigger than the box, the four corners and the middle of the left and right sides are enough: six map lookups tell whether any part of the box is inside a wall.</p>
+<p>The order matters: the program works out where a step <em>would</em> end up, asks whether that spot is free, and only then moves. Each direction is tested separately, so pressing diagonally into a wall slides along it instead of sticking:</p>
+[[part walker_demo.asm | ; --- Is the player's box | WalkerTiles:]]
+<p><code>wall_at</code> ends with a <code>CP</code> and then a <code>POP</code>, which does not touch the flags, so the zero flag it produced survives the return: <code>Z</code> means &ldquo;wall&rdquo;. The 8-bit arithmetic does the edge checks for free: the room has a border of wall tiles, so the player can never leave the screen.</p>
+
+<h3 id="11-animation">A walk cycle</h3>
+<p>Animation is only changing which tile numbers the sprite uses. Every step the player takes adds one to <code>wAnim</code>. Bit 3 of that counter is zero for eight steps and one for the next eight, so the player swaps between two pairs of tiles every eight steps while moving, and holds the last pose when stopped. Turning bit 3 into a tile number is two rotations (8 becomes 2) and an add of 4.</p>
+
+<h3 id="11-example">A complete example</h3>
+<p>The player is one 8&times;16 sprite in a walled room with a wall across the middle, steered by the direction pad. Holding B makes it run at two pixels a frame; pressing A turns it round, using the horizontal flip flag. The frame loop is the one from Chapter 9, the room is drawn with the line routines of Chapter 4, and the checks above keep it inside.</p>
+[[file walker_demo.asm]]
+<p><strong>What you see:</strong> a tall figure on a checkerboard floor inside a brick border, with a wall of bricks across the middle. It walks, swaps its legs as it goes, stops at the walls, can walk round the end of the middle wall, and turns round when you press A. The loop is too long for a relative jump, so it ends in <code>JP</code> where the shorter programs use <code>JR</code>.</p>
+[[shot walker_demo | walker_demo.asm: the player in the walled room, just after walking right.]]
+<p>The test suite steers the figure by pressing buttons in the emulator. It checks its position after each move, that it stops against the middle wall from both sides and against the border, that the walk frames really alternate, and that holding A turns it round exactly once.</p>
+
+<h3 id="11-where-next">Where to go next</h3>
+<p>This chapter has everything a small game needs: a tile map for the world, sprites for characters, scrolling for large levels, a window for the HUD, text, a frame loop, input, and collision with the map. Put the pieces together: scroll the room, give it a HUD, add enemies that move by the same rules as the player. The Game Boy's sound hardware, with four channels and their own registers, is the subject of a separate book and is not covered here.</p>
+<p class="bold-text">Key fact: input is one register read twice, inverted. Keep both &ldquo;held&rdquo; and &ldquo;newly pressed&rdquo;, and read the pad once per frame.</p>
+
+<h3 id="11-exercises">Try it yourself</h3>
+<ol>
+<li>Add a gap to the middle wall (clear two tiles of it in the shadow map) and walk through it. How tall is the smallest gap the player fits through, and why?</li>
+<li>Add a second tile type, water, that the player can walk on at half speed. Where do you look it up, and where do you change <code>wSpeed</code>?</li>
+<li>Add a second sprite that follows the player with a delay. Where do you store the history of positions?</li>
+</ol>
+</section>

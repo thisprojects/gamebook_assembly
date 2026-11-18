@@ -1,0 +1,216 @@
+<section>
+<h1 id="8-text-and-fonts">8. Text &amp; Fonts</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="8-in-high-level-languages">In High-Level Languages</h2>
+<p>Printing text is <code>print("Hello")</code>. Behind it, a font file is loaded and each glyph is rendered (from a bitmap or from outlines) into the framebuffer at the right position, with spacing and line breaks worked out by the library. The cost is hidden, but real: every letter is a small blit.</p>
+[[text]]
+for each character in "Hello":
+    glyph = font[character]
+    blit(glyph, x, y);  x += glyph.width
+[[/text]]
+<p>On the Game Boy there is no font file, no glyph renderer and no blit, but the idea of &ldquo;a picture per character&rdquo; maps onto the hardware very neatly.</p>
+<h2 id="8-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>The Game Boy contains no font. But it does not need a text-drawing routine either, because <em>a letter is just a tile</em>. If tile number 65 is a picture of an &ldquo;A&rdquo;, then putting 65 in the tile map makes an A appear. Printing a string is writing one byte per character into the map &mdash; the cheapest drawing operation the machine has.</p>
+
+<h3 id="8-loading-a-font">Loading a font</h3>
+<p>The font in <code>font.inc</code> stores each glyph as 8 bytes of one-bit-per-pixel rows, 96 glyphs for ASCII 32 to 127. A tile needs two bytes per row. If the same byte is written to both bit-planes, every set pixel becomes colour 3 and every clear pixel colour 0, so the expansion is the cheapest conversion there is: write each byte twice.</p>
+<p>The font is loaded starting at tile <code>$20</code>, so that the tile number of any character <em>is its ASCII code</em>. There is no lookup table and no subtraction: <code>"A"</code> is 65 in the string, 65 in the map, 65 as the tile.</p>
+[[part text.asm | text_init: | print_at:]]
+<p>That leaves tiles 0&ndash;31 (and $80&ndash;$FF) free for your own use: custom characters, borders, icons. It is worth noticing what the font costs, though: 96 of the 256 tiles in the <code>$8000</code> range, more than a third. A real game with a lot of artwork puts the font in tiles 128&ndash;255 (the <code>$8800</code> block, which sprites share) and writes its strings with that offset, or loads only the characters it uses. The window cannot pick a different tile block from the background: both follow bit 4 of <code>rLCDC</code>. Font tiles and picture tiles share one numbering, so keep a list of which tile number is which.</p>
+
+<h3 id="8-printing">Printing</h3>
+<p>The cursor is a map address in work RAM. <code>print_at</code> computes it from a column and a row (using the same &times;32 trick as Chapter 1, relative to whichever map is selected for text), and <code>print_char</code> stores a tile and advances.</p>
+[[part text.asm | print_at: | print_char:]]
+<p>Unlike the routines in earlier chapters, <code>print_char</code> is safe to call with the LCD <em>on</em>. Before writing it waits for the LCD to leave modes 2 and 3, using the status register <code>rSTAT</code>. Strictly, only mode 3 locks VRAM; modes 2 and 3 both lock OAM. Waiting out both is the simple, safe test, at the price of skipping a little usable time:</p>
+[[part text.asm | print_char: | print_string:]]
+<p>Strings and numbers are loops over that:</p>
+[[part text.asm | print_string: | SECTION "Font"]]
+<p>A string is a list of bytes ended by a zero. <code>print_number</code> prints three digits by repeated subtraction: count how many times 100 fits, then 10, then 1. This is much cheaper than a division routine on a CPU with no divide instruction.</p>
+
+<h3 id="8-custom-glyphs">Custom graphics in the text</h3>
+<p>Because text is tiles, an icon is just another tile in the same range. Tiles 1&ndash;3 here are a heart, an arrow and a smiley face, printed exactly like letters. Anything in a string can be mixed with them, and the same palette register that recolours the screen recolours the text.</p>
+
+<h3 id="8-windows">Text boxes in the window layer</h3>
+<p>Dialog boxes and menus are a good use of the window layer from Chapter 7: it floats above the scrolling background, has its own map, and can be switched on and moved by changing <code>rWY</code> without disturbing what is underneath. <code>text_window</code> points the printing routines at the window's map instead of the background's.</p>
+
+<h3 id="8-example">A complete example</h3>
+<p>This program prints a title and a score, a row of custom glyphs, and a framed message box in the window that is &ldquo;typed&rdquo; out one letter every two frames.</p>
+[[file text_demo.asm]]
+<p><strong>What you see:</strong> &ldquo;HELLO, GAME BOY!&rdquo; and &ldquo;SCORE 042&rdquo; near the top left, three hearts, an arrow and a smiley, and across the bottom a box whose message appears gradually. Note that the typing loop runs with the LCD on: that is what the status check inside <code>print_char</code> is for.</p>
+[[shot text_demo | text_demo.asm: text, custom glyphs, and the window message box.]]
+<p>One detail in the demo is easy to trip over: <code>print_char</code> uses register <code>A</code>, so the program reloads <code>A</code> before every call, even for the same character.</p>
+<p class="bold-text">Key fact: text is not a special feature. Load the glyphs as tiles in ASCII order and printing is one byte per letter into the map.</p>
+<h3 id="8-exercises">Try it yourself</h3>
+<ol>
+<li>Print a 16-bit number as five digits. What is the biggest value <code>print_number</code> can handle now?</li>
+<li>Write <code>print_centred</code>, which prints a string in the middle of a row. You will need the length of the string first.</li>
+<li>Make the typing effect speed up when a button is held (after Chapter 11) and add a blinking arrow when the message is finished.</li>
+</ol>
+</section>
+
+<section>
+<h1 id="9-vblank-and-timing">9. VBlank, Timing &amp; Smooth Animation</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="9-in-high-level-languages">In High-Level Languages</h2>
+<p>Smooth animation takes a <em>back buffer</em>: draw the whole next frame off-screen, then swap it with the one on show, so the viewer never sees a half-drawn picture. A &ldquo;vsync&rdquo; call or a frame timer keeps the loop in step with the display, and games usually measure how long the last frame took so movement stays the same speed on a faster or slower machine.</p>
+[[text]]
+loop:
+    update(game state)
+    draw(everything) into back_buffer
+    wait_for_vsync()
+    swap(front_buffer, back_buffer)
+[[/text]]
+<p>A back buffer costs a second full-screen block of memory, and the full redraw costs time. The Game Boy has no memory to spare for one, which pushes it to a different answer.</p>
+<h2 id="9-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>The Game Boy has no back buffer, and doesn't need one. There is no framebuffer to hold a half-drawn picture: the screen is drawn straight from tiles, the map, the scroll registers and OAM as they stand at the time each line is drawn. A picture is only wrong if the program changes one of those while the LCD is reading it.</p>
+<p>The discipline that replaces double buffering is therefore <em>when</em> you change things:</p>
+<ol>
+<li>All the thinking &mdash; input, movement, collisions, deciding what should change &mdash; goes on in the main program, at any time, and writes only to <em>work RAM</em>.</li>
+<li>All the touching of video memory happens in VBlank, in one short burst.</li>
+</ol>
+<p>The work-RAM copy of OAM (the shadow OAM of Chapter 6) is a back buffer for sprites. A queue of tile changes serves the same purpose for the map.</p>
+
+<h3 id="9-the-frame">The shape of a frame</h3>
+<p>The LCD runs at about 59.7 frames per second. Each frame has 154 lines of 456 clock cycles each: lines 0&ndash;143 are drawn, lines 144&ndash;153 are VBlank. That gives about <strong>1,140 machine cycles</strong> of VBlank and about 16,400 more for everything else, a frame in all of 17,556 machine cycles. A game's frame is a budget of cycles, and VBlank's share is the small, precious part.</p>
+<p>So the standard loop is:</p>
+[[text]]
+wait for VBlank
+    copy sprites (OAM DMA, 160 cycles)
+    write the queued map changes
+    update the scroll registers
+do the game logic for the next frame
+(go round again)
+[[/text]]
+
+<h3 id="9-the-interrupt">The VBlank interrupt</h3>
+<p>Polling <code>rLY</code> (as <code>wait_vblank</code> did) works but keeps the CPU spinning. The better way is the VBlank <em>interrupt</em>: enable it in <code>rIE</code> and the CPU jumps to address <code>$40</code> at the start of every VBlank. The main loop can then <code>HALT</code> &mdash; stop until the next interrupt &mdash; which saves battery (it needs interrupts enabled: <code>vblank_init</code> only sets <code>rIE</code>, so the program must also execute <code>EI</code>), and wakes it at exactly the right moment.</p>
+[[part vblank.asm | VBlankHandler: | ; Sleep until]]
+<p>The handler saves the registers it touches (and restores them before <code>RETI</code>), starts the sprite DMA, flushes the update queue, and tells the main program a frame has begun by setting <code>wVBlank</code>. The main loop's <code>wait_frame</code> sleeps until it sees that flag:</p>
+[[part vblank.asm | ; Sleep until | queue_tile:]]
+
+<h3 id="9-the-queue">The update queue</h3>
+<p>Map changes cannot happen at an arbitrary moment, so the main program does not write them: it puts them in a queue. Each entry is a map address and a tile number, three bytes. <code>queue_tile</code> turns a column and a row into an address and appends an entry; the VBlank handler writes them all out.</p>
+[[part vblank.asm | queue_tile: | ; Called by the VBlank handler]]
+<p>It masks the VBlank interrupt (in <code>rIE</code>) while it adds an entry, and puts <code>rIE</code> back exactly as it found it, so it is safe to call whether interrupts are on or off. Otherwise the handler could run halfway through, empty the queue, and then the main program would finish adding to a queue that no longer matches its own idea of the length. A VBlank that arrives in the meantime is not lost: it stays pending and runs the moment the mask is lifted.</p>
+[[part vblank.asm | ; Called by the VBlank handler | ; --- end of vblank.asm]]
+<p>The queue holds 16 entries, about 20 cycles each to flush, so even a full queue is over a quarter of the VBlank budget. If the budget matters more than the queue, make it shorter.</p>
+
+<h3 id="9-example">A complete example</h3>
+<p>A ball bounces round the screen and a three-digit frame counter ticks in the corner. The ball is a sprite (moved in the shadow OAM, sent by DMA); the counter is queued tile writes.</p>
+[[file anim_demo.asm]]
+<p><strong>What you see:</strong> a small ball that bounces diagonally off the edges of the screen, and a counter at the top left that increments by one every frame (it wraps at 255). Every change to video memory happens inside the handler: the main loop never touches VRAM.</p>
+[[shot anim_demo | anim_demo.asm: the bouncing ball and the frame counter.]]
+
+<h3 id="9-measuring">Measuring how long your frame takes</h3>
+<p>How close is a program to missing a frame? The simplest meter costs two instructions: set the palette to all black when the work starts, and back to normal when it ends.</p>
+[[asm]]
+    LD A, %11111111
+    LDH [rBGP], A              ; the screen goes black ...
+    ; ... the game's work for this frame ...
+    LD A, %11100100
+    LDH [rBGP], A              ; ... and back to normal
+[[/asm]]
+<p>The work starts just after VBlank begins, so the black is hidden while the LCD is not drawing. Anything still running when the first line of the next picture starts shows up as a black band at the top of the screen, and every line of band is another 114 machine cycles of overrun. No band means the work fits inside VBlank; a band reaching halfway down means the frame is in trouble.</p>
+<p>Try it: assemble <code>anim_demo.asm</code> with <code>rgbasm -D PROFILE=1</code>. A black band about 14 lines tall appears at the top of the screen, which the test suite measures. A bouncing ball and a counter cost the VBlank period plus another 14 lines &mdash; roughly 2,700 cycles, about 15% of the frame. Most of that is not the ball at all: <code>oam_end</code> clears the 39 unused sprites one at a time. That is the profiler doing its job, since it points straight at the first thing worth optimising. Put your game's real workload between the two palette writes to find out how much room is left.</p>
+[[shot anim_profile | anim_demo.asm built with PROFILE=1: the black band at the top is the frame overrunning VBlank.]]
+<p class="bold-text">Key fact: don't buffer the picture, buffer the <em>changes</em>. Think any time, write video memory only inside VBlank, and let the interrupt and DMA do the writing.</p>
+<h3 id="9-exercises">Try it yourself</h3>
+<ol>
+<li>Add a second ball with its own position and velocity. How many sprites do you use, and what is the first thing that breaks if you add forty?</li>
+<li>Show the frame counter in hexadecimal. Which table or calculation turns a nibble into a font tile?</li>
+<li>Put a long delay loop into the main loop and assemble with <code>-D PROFILE=1</code>. How tall does the black band get? At what delay does the ball start to stutter?</li>
+</ol>
+</section>
+
+<section>
+<h1 id="10-graphics-optimisation">10. Graphics Optimisation</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="10-in-high-level-languages">In High-Level Languages</h2>
+<p>Optimising graphics code is usually a matter of profiling first, then choosing better algorithms, drawing less (clipping, caching, dirty rectangles), and moving work to the GPU or to vector instructions. The rule is to measure before changing anything, because the slow part is rarely where you expect.</p>
+[[text]]
+start = clock();  draw_scene();  elapsed = clock() - start
+[[/text]]
+<p>On the Game Boy there is no GPU to move work to, no floating point and no multiply, and every instruction has a fixed cost you can look up. That makes the profiling very different: you count cycles, and you aim at one specific budget.</p>
+<h2 id="10-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>On the Game Boy you count cycles by hand &mdash; and the cycle count that matters most is the 1,140 of a VBlank. Almost all the real optimisation work is on one question: how many bytes can reach VRAM in that time?</p>
+<p>Here are the costs, in machine cycles, of the building blocks:</p>
+<table>
+<tr><th>Instruction</th><th>Cycles</th><th>Instruction</th><th>Cycles</th></tr>
+<tr><td><code>LD A, [HL+]</code></td><td>2</td><td><code>PUSH rr</code></td><td>4</td></tr>
+<tr><td><code>LD [DE], A</code></td><td>2</td><td><code>POP rr</code></td><td>3</td></tr>
+<tr><td><code>INC DE</code></td><td>2</td><td><code>LD [HL+], A</code></td><td>2</td></tr>
+<tr><td><code>DEC BC</code></td><td>2</td><td><code>JR NZ</code> (taken)</td><td>3</td></tr>
+</table>
+
+<h3 id="10-the-plain-copy">The plain copy</h3>
+<p>The loop from Chapter 1 does each byte in 13 cycles:</p>
+[[text]]
+LD A,[HL+]   2
+LD [DE],A    2
+INC DE       2
+DEC BC       2
+LD A,B       1
+OR C         1
+JR NZ        3        = 13 cycles per byte
+[[/text]]
+<p>That moves about 87 bytes in one VBlank &mdash; four map rows. Most of those cycles are bookkeeping, not copying.</p>
+
+<h3 id="10-unrolling">Unrolling</h3>
+<p>The cure is <em>unrolling</em>: write the copy sequence out many times so the loop test and the 16-bit counter run once per block, not once per byte. Each byte now costs 6 cycles (<code>LD A,[HL+]</code>, <code>LD [DE],A</code>, <code>INC DE</code>), more than twice as fast. The assembler does the writing with <code>REPT</code>:</p>
+[[part fast.asm | copy_unrolled: | ; Reading with POP]]
+<p>The price is size &mdash; 16 times 3 instructions &mdash; and a restriction: it moves multiples of 16 bytes.</p>
+
+<h3 id="10-stack-tricks">Using the stack as a data pump</h3>
+<p>The stack instructions move two bytes at once. <code>POP DE</code> reads two bytes from where the stack pointer points and advances it, in 3 cycles, which is cheaper than two single-byte loads. So if the stack pointer is set to the <em>source</em>, a copy is a series of pops, each followed by two stores:</p>
+[[part fast.asm | ; Reading with POP | ; Writing with PUSH]]
+<p>That is 9 cycles for two bytes: 4.5 per byte. Filling is better still. <code>PUSH BC</code> writes two bytes in 4 cycles and moves downwards, so setting the stack pointer to the <em>end</em> of the area and pushing fills at 2 cycles per byte &mdash; about five times faster than the plain fill loop (10 cycles per byte) and over six times faster than the plain copy.</p>
+[[part fast.asm | ; Writing with PUSH | ; row * 32]]
+<p>These routines have two rules. They disable interrupts (<code>DI</code>) because an interrupt arriving while the stack pointer is aimed at the data would push a return address into the middle of it; and they restore the stack pointer before returning. The caller turns interrupts back on. That also means they cannot be used where an interrupt <em>must</em> arrive on time, or from inside an interrupt handler. A raster-effect handler like the one in Chapter 7 should use the plain routines.</p>
+
+<h3 id="10-address-maths">Cheaper address calculation</h3>
+<p>The map-address routine from Chapter 1 spends five <code>ADD HL, HL</code>s on &times;32. There is a faster way using rotation. A row number is 5 bits. Rotated right three times, the low three bits of the row (which, times 32, are the part that lands in the low byte of the address) end up as the top three bits of the byte, and the high two bits of the row (which become the high byte, as <code>row / 8</code>) as the bottom two:</p>
+[[part fast.asm | ; row * 32 without | ; --- end of fast.asm]]
+<p>The result is the same address in about half the cycles. When a program computes thousands of addresses (a tile-based collision test, a map editor), this is worth having.</p>
+
+<h3 id="10-measuring">Measuring it for real</h3>
+<p>The timing numbers are not merely calculated: the next program measures them. The register <code>rDIV</code> counts up continuously (once every 64 machine cycles) and any write to it resets it to zero, which makes a handy stopwatch. Each routine is wrapped in a reset and a read:</p>
+[[file speed_demo.asm]]
+<p>The results, in <code>rDIV</code> ticks of 64 cycles, for 1,024 bytes:</p>
+<table>
+<tr><th>Method</th><th>Ticks</th><th>Cycles</th><th>Bytes per VBlank</th></tr>
+<tr><td>Plain copy loop</td><td>208</td><td>13,300</td><td>about 85</td></tr>
+<tr><td>Unrolled copy</td><td>100</td><td>6,400</td><td>about 180</td></tr>
+<tr><td>Copy using POP</td><td>76</td><td>4,900</td><td>about 230</td></tr>
+<tr><td>Plain fill loop</td><td>160</td><td>10,200</td><td>about 110</td></tr>
+<tr><td>Fill using PUSH</td><td>36</td><td>2,300</td><td>about 500</td></tr>
+</table>
+<p>The address comparison: 100 calls of the plain routine took 75 ticks, 100 calls of the rotation version 51 &mdash; including the loop around them. The test suite checks the ordering of every result, and that each fast routine produces exactly the same data as the plain one.</p>
+<p>The &ldquo;bytes per VBlank&rdquo; column is optimistic: the handler also needs the OAM DMA and some margin. A realistic target is 60&ndash;70% of the figure. This is why larger transfers (a whole new screen of tiles) happen with the LCD off, or are spread across several frames.</p>
+
+<h3 id="10-hdma">Hardware copying on the Game Boy Color</h3>
+<p>The Game Boy Color has the thing the original lacks: a general-purpose DMA unit for video memory. Five registers, <code>rHDMA1</code> to <code>rHDMA5</code> (<code>$FF51-$FF55</code>), take a source address, a destination address in VRAM and a length in blocks of 16 bytes. Writing the length starts the copy at once, and the CPU simply waits until it is finished &mdash; far faster than any loop it could run, so it is how a game loads a screenful of tiles during VBlank. (The exact speed depends on the console mode; see the Pan Docs if you need numbers.)</p>
+[[file cgb.asm]]
+<p>One trap: the hardware ignores the low four bits of both addresses. If the source is not on a multiple of 16, the copy comes out shifted by the difference, with no error. The data in the example is placed with <code>ALIGN[4]</code> for that reason. The example copies 64 tiles twice, once with the loop from Chapter 1 and once with hardware, and the tests check that the two results are identical byte for byte:</p>
+[[file hdma_demo.asm]]
+<p>Like <code>cgb_demo</code> it needs <code>rgbfix -c</code>. The emulator performs the copy instantly, so, unlike the other timings in this chapter, no cycle count is quoted for it.</p>
+
+<h3 id="10-other-savings">Other savings</h3>
+<ul>
+<li><strong>Do less.</strong> The best copy is the one you skip. Update only the tiles that changed (the update queue), not the whole map.</li>
+<li><strong>Use <code>LDH</code>.</strong> <code>LDH A, [rLY]</code> is 2 bytes and 3 cycles; the same read as <code>LD A, [$FF44]</code> is 3 bytes and 4. The same goes for high RAM variables, which you can place with <code>SECTION ..., HRAM</code>.</li>
+<li><strong>Let the hardware move data.</strong> OAM DMA moves 160 bytes in 160 cycles &mdash; no loop beats that. The Game Boy Color's block copy (HDMA, above) is another case.</li>
+<li><strong>Let the LCD be off.</strong> Anything big &mdash; a title screen, a new level &mdash; is loaded with the LCD off and no time limit at all. A fade to white first hides the blank.</li>
+<li><strong>Look before you wait.</strong> The <code>rSTAT</code> check in <code>print_char</code> costs a few cycles per write. Do it per run of writes, not per byte, when you know the run will fit in one safe period.</li>
+</ul>
+<p class="bold-text">Key fact: the budget is the VBlank. Spend cycles on moving bytes, not on counting them: unroll, use <code>PUSH</code> and <code>POP</code> to move two bytes at a time, and use the hardware's own DMA wherever it is offered.</p>
+<h3 id="10-exercises">Try it yourself</h3>
+<ol>
+<li>Rewrite <code>oam_end</code> to clear only the Y byte of each unused entry. How many ticks of <code>rDIV</code> does that save, and how much shorter does the black band in the <code>PROFILE=1</code> build get?</li>
+<li>Write <code>shadow_to_vram_fast</code> using <code>copy_stack</code> and work out how many frames it needs to copy a whole map during VBlank only.</li>
+<li>Time <code>print_number</code>. Which of its three digit loops costs the most, and why?</li>
+<li>In <code>hdma_demo.asm</code>, change the source to an address that is not on a multiple of 16 and see which tile data lands where.</li>
+</ol>
+</section>

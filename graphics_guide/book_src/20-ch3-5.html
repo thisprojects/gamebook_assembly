@@ -1,0 +1,166 @@
+<section>
+<h1 id="3-drawing-pixels">3. Drawing Pixels</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="3-in-high-level-languages">In High-Level Languages</h2>
+<p>Plotting a pixel is the most basic graphics operation: <code>canvas[y][x] = colour</code>, usually wrapped in a function that also checks that the coordinates are on the canvas and silently ignores them if not. Every line, circle and flood fill is built on it.</p>
+[[text]]
+function setPixel(x, y, colour):
+    if x < 0 or x >= width or y < 0 or y >= height: return
+    framebuffer[y * width + x] = colour
+[[/text]]
+<p>The function is cheap on a PC because memory is byte-addressed and a pixel is a whole byte or more. On the Game Boy a pixel is two <em>bits</em>, in two different bytes, and the memory it lives in cannot even be written most of the time.</p>
+<h2 id="3-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>The Game Boy is a tile machine, so most pictures are made by placing tiles, not by plotting pixels (Chapters 1, 5 and 6). But sometimes you do want to draw: a graph, a drawing tool, a procedurally generated shape, a line-drawn map. The trick is to <em>turn tiles into a canvas</em>.</p>
+<p>VRAM holds 256 tiles at <code>$8000-$8FFF</code>. If the map arranges tiles 0&ndash;255 in a 16&times;16 block, in order, those 256 tiles together form a 128&times;128 pixel picture, and drawing a pixel means changing the right two bits of the right tile. That is the canvas.</p>
+<p>One problem remains: VRAM can only be written in VBlank, and plotting a pixel is slow. So the canvas lives in work RAM, in exactly the layout VRAM wants &mdash; 4,096 bytes at <code>$D000</code> &mdash; and is copied into VRAM when a picture is ready (LCD off), or tile by tile as things change.</p>
+
+<h3 id="3-where-a-pixel-lives">Where a pixel lives</h3>
+<p>Pixel (<code>x</code>, <code>y</code>) is in tile column <code>x / 8</code>, tile row <code>y / 8</code>. Each tile row of the canvas is 16 tiles &times; 16 bytes = 256 bytes, which is exactly one page. So:</p>
+[[text]]
+address high byte = $D0 + y / 8
+address low byte  = (x / 8) * 16 + (y mod 8) * 2
+bit mask          = $80 >> (x mod 8)
+[[/text]]
+<p>The low byte of the address is the tile within its row (<code>(x / 8) &times; 16</code>) plus two bytes for each line down inside the tile. The pixel's colour is spread over the byte at that address (bit 0 of the colour) and the next one (bit 1). The mask picks the pixel's column: leftmost pixel is bit 7. There is no loop and no multiplication: shifts and masks only.</p>
+<p>The canvas is 128 pixels square, so a coordinate of 128 or more is off it. <code>plot</code> checks for this first &mdash; <code>OR</code> the two coordinates together and test bit 7 &mdash; and quietly does nothing, so every other routine in this and the next two chapters can be drawn partly or wholly off the edge without damaging memory. A &ldquo;negative&rdquo; coordinate is 128&ndash;255 as an unsigned byte and is ignored for the same reason.</p>
+[[part canvas.asm | pixel_addr: | ; --- Set pixel]]
+
+<h3 id="3-setting-clearing-toggling">Setting, clearing and inverting</h3>
+<p>To give the pixel colour 0&ndash;3, the program sets or clears the mask bit in each of the two bytes: <code>OR</code> sets it, <code>AND</code> with the inverted mask clears it.</p>
+[[part canvas.asm | plot: | ; --- Invert pixel]]
+<p>Inverting a pixel flips both planes with <code>XOR</code>, which swaps colour 0 with 3 and colour 1 with 2. It is the way to draw something that can be removed again by drawing it a second time.</p>
+[[part canvas.asm | toggle_pixel: | ; --- Horizontal line]]
+
+<h3 id="3-clearing-and-showing">Clearing the canvas and showing it</h3>
+<p>Clearing is easy because colours are two bit-planes: colour 3 is every byte <code>$FF</code>, colour 0 every byte <code>$00</code>, and colours 1 and 2 alternate <code>$FF</code> and <code>$00</code>.</p>
+[[part canvas.asm | ; --- Fill the whole canvas | ; --- Work out where a pixel]]
+<p>Showing the canvas is two jobs: arrange the map so tile 0 is at one corner, tile 1 next to it, and so on (<code>canvas_map</code>); and copy the 4,096 bytes into tile memory (<code>canvas_to_vram</code>). The canvas map fills 16 entries per row with consecutive numbers, then skips to the next map row, which is 32 entries on.</p>
+[[part canvas.asm | ; --- Copy the canvas into video | ; --- end of canvas.asm]]
+
+<h3 id="3-example">A complete example</h3>
+<p>This draws a diagonal of 64 pixels cycling through the four colours, then plots a pixel and inverts it twice to prove that inversion works.</p>
+[[file pixel_demo.asm]]
+<p><strong>What you see:</strong> a dotted diagonal line from the top-left corner of the canvas, its pixels in four different shades. The single pixel at (100, 20) is not there at the end: it was plotted, inverted (colour 3 became 0), and the neighbour at (101, 20), which was colour 0, became colour 3.</p>
+[[shot pixel_demo | pixel_demo.asm: a 64-pixel diagonal cycling through the four colours, drawn on the 128&times;128 canvas.]]
+<p>Copying all 4,096 bytes takes far longer than a VBlank, which is why this program uses the LCD-off method. A program that animates a drawing would instead copy only the 16-byte tiles that changed each frame, in VBlank (Chapters 9 and 10).</p>
+<p class="bold-text">Key fact: a Game Boy pixel is two bits in two bytes. Build pictures in RAM, in the same layout as VRAM, and copy them across in bulk &mdash; then a pixel is a shift, a mask and two writes.</p>
+<h3 id="3-exercises">Try it yourself</h3>
+<ol>
+<li>Write <code>clear_pixel</code>, which sets a pixel to colour 0 without needing the colour in <code>D</code>. Which instructions of <code>plot</code> can you drop?</li>
+<li>Draw a &ldquo;fat pixel&rdquo;: a 2&times;2 block with the top-left corner at (<code>x</code>, <code>y</code>).</li>
+<li>Plot a sine wave across the canvas using a 128-entry table of heights (generate it with a <code>FOR</code> loop, as <code>scroll.asm</code> does).</li>
+</ol>
+</section>
+
+<section>
+<h1 id="4-drawing-lines">4. Drawing Lines</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="4-in-high-level-languages">In High-Level Languages</h2>
+<p>A line is <code>drawLine(x0, y0, x1, y1)</code>. The library decides which pixels to light, usually with Bresenham's algorithm, and calls <code>setPixel</code> for each. Horizontal and vertical lines get special cases, because they can be filled without any maths. Thicker lines are built from several thin ones, or from filled shapes along the path.</p>
+[[text]]
+drawLine(0, 0, 10, 4):  for x in 0..10: setPixel(x, round(x * 4 / 10), colour)
+[[/text]]
+<p>That one-liner uses floating point. The point of Bresenham is that integers are enough, and that matters a great deal when the CPU has no multiply or divide instruction at all.</p>
+<h2 id="4-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>There are two entirely different ways to draw a line on a tile machine, and a good program uses both.</p>
+
+<h3 id="4-lines-of-tiles">Lines made of tiles</h3>
+<p>If a line is horizontal or vertical and its thickness can be 8 pixels or a whole tile, you do not need pixels at all. A wall, a platform, a dialog border or a graph axis is just a row of identical tile numbers. Because the map is linear, a horizontal line is consecutive bytes and a vertical line is bytes 32 apart.</p>
+<p>The program keeps a copy of the map in work RAM (a <em>shadow map</em>), draws into that, and copies the finished map to VRAM. Lines in it are just loops over <code>shadow_set</code>:</p>
+[[part tilemap.asm | ; --- A line made of tiles | shadow_to_vram:]]
+<p>A box is four of these. No bit-masks, no planes: 12 map writes for a 12-tile line, against 96 pixel plots for the same width on the canvas.</p>
+
+<h3 id="4-lines-of-pixels">Lines made of pixels</h3>
+<p>For anything at an angle, or one pixel thick, you go back to the canvas of Chapter 3. Horizontal and vertical lines are loops of <code>plot</code>:</p>
+[[part canvas.asm | ; --- Horizontal line | ; --- Bresenham line]]
+
+<h3 id="4-bresenham">Bresenham's algorithm</h3>
+<p>For a diagonal, the program steps along the <em>longer</em> axis one pixel at a time and decides, at each step, whether to move the shorter axis too. It keeps a running total: each step adds the short distance, and whenever the total reaches the long distance, the short axis steps and the total drops by the long distance. That is the whole algorithm. Starting the total at half the long distance makes the line round evenly at both ends.</p>
+<p>Say the line goes from (0, 0) to (10, 4). The long axis is x (10 steps) and the short distance is 4. The total starts at 5, half of 10. Each row below is one plotted pixel, then the addition of 4 to the total:</p>
+[[text]]
+plot      total after adding 4    y steps?
+(0, 0)     9                      no   (9 is less than 10)
+(1, 0)    13 - 10 = 3             yes
+(2, 1)     7                      no
+(3, 1)    11 - 10 = 1             yes
+(4, 2)     5                      no
+(5, 2)     9                      no
+(6, 2)    13 - 10 = 3             yes
+(7, 3)     7                      no
+(8, 3)    11 - 10 = 1             yes
+(9, 4)     5                      no
+(10, 4)   (the last pixel, so we stop)
+[[/text]]
+<p>Four y steps over ten x steps: the line rises 4 as it runs 10, with the rises spread as evenly as whole pixels allow.</p>
+<p>Everything fits in 8 bits for a 128-pixel canvas: the total never exceeds twice the longer distance, which is under 256. That avoids the signed 16-bit arithmetic the textbook version needs.</p>
+[[part canvas.asm | draw_line: | ; --- Rectangles]]
+<p>The routine first works out the distance and the direction (&plusmn;1) on each axis, picks the longer one, then loops, plotting and stepping. The step helpers <code>step_x</code> and <code>step_y</code> add the direction to the current coordinate. The same loop handles all eight octants, because the &ldquo;which axis is long&rdquo; question is answered once, up front, and stored in <code>wSteep</code>.</p>
+
+<h3 id="4-example">A complete example</h3>
+<p>A box from four lines, both diagonals, and two lines of other slopes:</p>
+[[file line_demo.asm]]
+<p><strong>What you see:</strong> a frame around the canvas with an X in it (the first diagonal in black, the second in a lighter shade) and two more lines of different slopes. Every pixel of every line is checked by the test suite against a separate implementation of the same algorithm.</p>
+[[shot line_demo | line_demo.asm: a box, both diagonals and two other slopes.]]
+<p class="bold-text">Key fact: use tiles for straight lines of tile thickness, and the pixel canvas for everything else. Bresenham needs only an accumulator and a comparison, and fits in 8-bit arithmetic on a small canvas.</p>
+<h3 id="4-exercises">Try it yourself</h3>
+<ol>
+<li>Draw a dotted line by calling <code>plot</code> only on every other step of the loop in <code>draw_line</code>.</li>
+<li>Write <code>draw_polyline</code>, which takes a list of points in ROM and draws a line between each consecutive pair.</li>
+<li>Use <code>shadow_hline</code> and <code>shadow_vline</code> to draw a frame around the screen using four different tiles for the corners.</li>
+</ol>
+</section>
+
+<section>
+<h1 id="5-drawing-shapes">5. Drawing Shapes</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="5-in-high-level-languages">In High-Level Languages</h2>
+<p>Shape functions &mdash; <code>drawRect</code>, <code>fillRect</code>, <code>drawCircle</code>, <code>floodFill</code> &mdash; are built from lines and pixels. A filled rectangle is a loop of horizontal lines; a circle uses its eight-way symmetry; and a flood fill is a search that spreads outward from a seed pixel until it meets a different colour, often written recursively or with a stack of pixels still to visit.</p>
+[[text]]
+floodFill(x, y, new):
+    old = pixel(x, y)
+    stack = [(x, y)]
+    while stack: (px, py) = pop; if pixel(px, py) == old: set it to new; push the four neighbours
+[[/text]]
+<p>On a PC each of these touches many individual pixels. The question for the Game Boy is how many of them can be avoided.</p>
+<h2 id="5-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>The same two routes apply: shapes made of tiles and shapes made of pixels.</p>
+
+<h3 id="5-rectangles">Rectangles</h3>
+<p>A hollow rectangle is four lines. On the tile map, that is two <code>shadow_hline</code> and two <code>shadow_vline</code> calls, and a <em>filled</em> rectangle is one <code>shadow_hline</code> per row &mdash; or, if the map is being cleared, a single <code>fill_bytes</code>. On the canvas the pixel versions are:</p>
+[[part canvas.asm | ; --- Rectangles | ; --- Circles (midpoint]]
+
+<h3 id="5-circles">Circles</h3>
+<p>Circles use the midpoint algorithm, which exploits the circle's eight-fold symmetry: it only works out one eighth of the circle (from the top, going right and down) and mirrors each point to the other seven positions. Starting at (radius, 0), each step moves <code>y</code> up by one, and <code>x</code> down by one whenever an error term says the circle has crossed into the inner pixel.</p>
+[[part canvas.asm | ; --- Circles (midpoint | circle_setup:]]
+<p>The error term can be negative and exceeds 8 bits, so it is a 16-bit signed value kept in two bytes. Setting it up is <code>1 &minus; radius</code>; <code>SBC A</code> after the subtraction turns the borrow into the high byte (<code>$FF</code> for negative, <code>$00</code> for positive):</p>
+[[part canvas.asm | circle_setup: | ; Plot the eight mirror images]]
+<p>The eight-way plotting is two calls to <code>plot4</code>, once with (x, y) and once swapped. A <em>filled</em> circle does not plot points at all: for each step it draws horizontal spans of the right width (<code>span8</code>), reusing <code>draw_hline</code>.</p>
+[[part canvas.asm | ; Plot the eight mirror images | ; --- Copy the canvas into video]]
+<p>A circle may hang over the edge of the canvas, because <code>plot</code> ignores anything outside it. A radius of 0 is handled separately and draws a single pixel; without that check the loop would never end. Rectangles with no width or no height likewise draw nothing.</p>
+
+<h3 id="5-shapes-example">Canvas example</h3>
+<p>Four shapes on one canvas:</p>
+[[file shapes_demo.asm]]
+<p><strong>What you see:</strong> a hollow rectangle (top left), a filled one in a mid shade (top right), a circle outline and a dotted filled circle. The test suite compares the whole 128&times;128 canvas with an independent model of each shape.</p>
+[[shot shapes_demo | shapes_demo.asm: hollow and filled rectangle, circle outline and filled circle.]]
+
+<h3 id="5-flood-fill">Flood fill on the tile map</h3>
+<p>Filling a region is another place where tiles win. Filling pixels one at a time on a 128&times;128 canvas is a lot of work; filling <em>tiles</em> on a 20&times;18 map is trivial, and for backgrounds it is usually what you want: a room, a field, a pool.</p>
+<p>The fill works on the shadow map. It looks at the tile where it starts, remembers that tile as the one to replace, and then repeatedly visits squares: if a square still holds the old tile, it is changed to the new one and its four neighbours are queued. Walls (any other tile) stop it. The queue is the CPU stack: <code>PUSH</code> a position, <code>POP</code> the next to visit, and stop when the stack pointer is back where it started.</p>
+[[part tilemap.asm | flood_fill: | ; --- end of tilemap.asm]]
+<p>Two details deserve a second look. A column of <code>$FF</code> (that is, &minus;1) appears when the fill steps off the left of the map, and the unsigned test <code>CP 32</code> rejects it along with anything past the right edge, so there is no separate negative check. And the very first test, &ldquo;is the new tile the same as the old?&rdquo;, prevents an endless loop when asked to fill a region with its own tile.</p>
+<p>The stack grows by up to four entries (8 bytes) for each square filled, because neighbours are queued before they are known to be fillable. For the small regions of a 20&times;18 screen that is fine; do not use it to fill an entire 32&times;32 map.</p>
+[[file flood_demo.asm]]
+<p><strong>What you see:</strong> a room with a wall down the middle. The left half is covered in dotted tiles; the right half is untouched. The fill stopped at the walls and never leaked outside.</p>
+[[shot flood_demo | flood_demo.asm: the left room filled with dotted tiles; the wall stops the fill.]]
+<p class="bold-text">Key fact: shapes on a tile map are tile writes &mdash; fast and exact. Keep the pixel canvas for curves and detail, and a shadow map in RAM for anything you edit in bulk.</p>
+<h3 id="5-exercises">Try it yourself</h3>
+<ol>
+<li>Draw five concentric circles with different colours. What happens when the radius is bigger than the distance to the edge of the canvas?</li>
+<li>Build a filled triangle from three calls to <code>draw_line</code>, then fill it by drawing a horizontal line across each row between its edges. (<code>flood_fill</code> works on the tile map, not the canvas.)</li>
+<li>Run <code>flood_fill</code> with its seed on a wall tile. What gets filled, and why does it stop?</li>
+</ol>
+</section>

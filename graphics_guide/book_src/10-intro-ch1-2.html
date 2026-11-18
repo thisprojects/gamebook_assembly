@@ -1,0 +1,181 @@
+<section>
+<h1 id="introduction">Introduction</h1>
+
+<p>The original Game Boy was built to do one thing well: put moving pictures on a small, slow LCD, sixty times a second, using a processor that is barely faster than a pocket calculator. It manages this because most of the hard work of drawing is not done by your program at all. The screen is assembled by dedicated hardware from three ingredients you provide: <strong>tiles</strong> (8&times;8 pictures), <strong>maps</strong> (grids saying which tile goes where) and <strong>sprites</strong> (tiles that float freely above everything else).</p>
+
+<p>That changes how you think about graphics. On many machines you would work out where in memory a pixel lives and change it yourself. On the Game Boy you will rarely touch a pixel directly. You describe the picture &mdash; &ldquo;this tile here, that sprite there, scroll by three&rdquo; &mdash; and the hardware draws it, applying transparency, flipping, clipping and scrolling for free. This book teaches graphics the way the machine wants them taught: ten topics, each starting with the job you want done and showing the Game Boy's own way of doing it, and a last chapter that adds the joypad and ties them into something you can steer. Sound is left for another book, and the link cable and cartridge hardware are not covered.</p>
+
+<h2 id="what-you-should-know">What you should know first</h2>
+<p>This book assumes you can read basic Game Boy (SM83) assembly: registers <code>A</code>, <code>B</code>, <code>C</code>, <code>D</code>, <code>E</code>, <code>H</code>, <code>L</code>, the 16-bit pairs such as <code>HL</code>, <code>LD</code>, <code>ADD</code>, <code>CP</code>, the flags, <code>JR</code> and <code>CALL</code>. If you can follow a loop that counts from 1 to 10, you are ready. Everything graphical is explained from scratch.</p>
+
+<h2 id="the-three-layers">The three layers</h2>
+<p>Every frame the LCD draws 144 lines of 160 pixels, each pixel one of four shades. The picture is built from layers, back to front:</p>
+<ul>
+<li><strong>The background</strong> &mdash; a 32&times;32 grid of tiles (256&times;256 pixels) of which a 160&times;144 window onto it is visible. Two registers set where that window sits, so scrolling is a matter of changing two numbers.</li>
+<li><strong>The window</strong> &mdash; a second, non-scrolling grid that can be laid over the bottom or right of the screen. It is made for score panels and text boxes.</li>
+<li><strong>Sprites</strong> &mdash; up to 40 movable tiles (or tile pairs) that sit in front of, or behind, the background. Each has its own position, flip flags and palette.</li>
+</ul>
+
+<h2 id="the-memory-map">The graphics memory map</h2>
+<p>All of it lives in a handful of regions:</p>
+<table>
+<tr><th>Address</th><th>What it holds</th></tr>
+<tr><td><code>$8000-$8FFF</code></td><td>Tile pictures, 16 bytes each: tiles 0&ndash;255 (used by sprites and, normally, the background)</td></tr>
+<tr><td><code>$8800-$97FF</code></td><td>Further tile pictures, 128 per block</td></tr>
+<tr><td><code>$9800-$9BFF</code></td><td>Tile map 0: 32&times;32 tile numbers</td></tr>
+<tr><td><code>$9C00-$9FFF</code></td><td>Tile map 1: a second 32&times;32 map (background or window)</td></tr>
+<tr><td><code>$FE00-$FE9F</code></td><td>OAM: the 40 sprites, four bytes each</td></tr>
+<tr><td><code>$FF40-$FF4B</code></td><td>Hardware registers: LCD control, scroll, palettes, window and so on</td></tr>
+</table>
+<p>The first four rows together are the 8 KB of video RAM, or <em>VRAM</em>. The hardware reads it all the time to draw the screen, which is why there are rules about when your program may write to it (Chapter 1).</p>
+
+<h2 id="how-to-build">Building and running the examples</h2>
+<p>The programs are assembled with RGBDS, the standard Game Boy toolchain. Every program in this book is a complete file in the <code>examples/</code> folder, and every routine is in <code>lib/</code>. To build one:</p>
+[[text]]
+rgbasm -I lib/ -o tiles_demo.o examples/tiles_demo.asm
+rgblink -o tiles_demo.gb tiles_demo.o
+rgbfix -v -p 0xFF tiles_demo.gb
+[[/text]]
+<p>or simply run <code>make tiles_demo.gb</code> in the <code>examples</code> folder, and <code>make run-tiles_demo</code> to open it in an emulator. The listings you read here are not retyped: the book is built from the same files that an automated test suite assembles and runs on an emulated Game Boy, checking what ends up in video memory and on screen.</p>
+
+<h2 id="the-program-template">The shape of every program</h2>
+<p>Every example begins with the same few lines, kept in <code>boot.inc</code>:</p>
+[[file boot.inc]]
+<p>The Game Boy starts executing at <code>$100</code>, where there are only four bytes of room before the cartridge header, so the program jumps over it. <code>rgbfix</code> fills the header in afterwards. Code then starts at <code>$150</code>, with the stack placed at the top of the first block of work RAM. <code>hardware.inc</code> gives names to the hardware registers (<code>rLCDC</code>, <code>rSCX</code> and so on) and is used with <code>LDH</code>, the short instruction for the <code>$FF00</code> page.</p>
+<p>The routines are plain files you <code>INCLUDE</code> at the end of a program: <code>gfx.asm</code> for the basics, <code>canvas.asm</code> for drawing, <code>oam.asm</code> for sprites, and so on. Appendix A lists them all. Each chapter ends with a few exercises that use only what has been covered so far.</p>
+</section>
+
+<section>
+<h1 id="1-tiles-tile-maps-and-vram">1. Tiles, Tile Maps &amp; VRAM</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="1-in-high-level-languages">In High-Level Languages</h2>
+<p>A graphics library hands you a canvas: a rectangle of pixels with a function like <code>setPixel(x, y, colour)</code>. Somewhere underneath sits a <em>framebuffer</em>, a block of memory with a value for every pixel, and the library turns coordinates into a memory address:</p>
+[[text]]
+address = framebuffer + y * width + x
+framebuffer[address] = colour
+[[/text]]
+<p>The program owns every pixel. To show something, it writes the pixels itself; to move it, it rewrites them; and to put a character on screen it copies in all of its pixels. That is simple to reason about, but it is expensive: a 160&times;144 picture at two bits per pixel is 5,760 bytes that must be rewritten whenever anything changes. The Game Boy was designed to avoid exactly that cost.</p>
+<h2 id="1-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>The Game Boy has no framebuffer. 160&times;144 pixels at two bits each would be 5,760 bytes of dedicated memory plus the time to update it &mdash; far more than the machine can afford. Instead, the screen is drawn from <em>tiles</em>, and the only thing the program stores per screen position is a one-byte tile number.</p>
+
+<h3 id="1-anatomy-of-a-tile">The anatomy of a tile</h3>
+<p>A tile is an 8&times;8 picture where every pixel is one of four colours, numbered 0 to 3. That needs two bits per pixel, so a tile is 8 rows &times; 2 bytes = <strong>16 bytes</strong>. The two bits of each pixel are kept in two different bytes of its row: the first byte holds bit 0 of the eight pixels, the second byte holds bit 1, with the leftmost pixel in bit 7.</p>
+<p>Here is one row, worked out. Suppose a row should read, left to right, <code>0 1 2 3 3 2 1 0</code>:</p>
+[[text]]
+pixel colour:   0  1  2  3  3  2  1  0
+bit 0 (byte 1): 0  1  0  1  1  0  1  0   = %01011010 = $5A
+bit 1 (byte 2): 0  0  1  1  1  1  0  0   = %00111100 = $3C
+[[/text]]
+<p>so the row is stored as <code>DB $5A, $3C</code>. Two special cases are worth knowing: a row with both bytes <code>$00</code> is eight colour-0 pixels, and both bytes <code>$FF</code> is eight colour-3 pixels. A whole tile of <code>$FF</code> is a solid block.</p>
+
+<h3 id="1-the-tile-map">The tile map</h3>
+<p>The screen shows tiles chosen from a grid, the <em>tile map</em>: 32 columns by 32 rows of one-byte tile numbers, starting at <code>$9800</code>. Entry (<code>column</code>, <code>row</code>) is at:</p>
+[[text]]
+address = $9800 + row * 32 + column
+[[/text]]
+<p>A visible screen is 20 tiles wide and 18 tall, so you see the top-left corner of the map unless you scroll (Chapter 7). The part of the 32&times;32 grid you cannot see is not wasted: it is where new scenery waits to scroll in.</p>
+<p>Notice what the arrangement buys you. The map is simply a linear array: no thirds, no interleaving, no odd address formulae. Moving down a row is adding 32. Because a tile can be used any number of times, a screen full of 360 tiles needs only as many <em>pictures</em> as there are different tiles in it &mdash; 20 or 30 for a typical screen.</p>
+
+<h3 id="1-two-ways-to-number-tiles">Which picture does tile number 5 mean?</h3>
+<p>The tile numbers in the map are looked up in VRAM. Bit 4 of the LCD control register <code>rLCDC</code> chooses between two arrangements. With the bit set (the one used in this book, <code>LCDCF_BG8000</code>), tile <em>n</em> lives at <code>$8000 + n &times; 16</code>, so numbers 0&ndash;255 cover <code>$8000-$8FFF</code>. With the bit clear, numbers are signed and tile 0 is at <code>$9000</code>, giving a second range. Sprites always use the first arrangement.</p>
+
+<h3 id="1-when-vram-is-open">When you may touch VRAM</h3>
+<p>The LCD controller reads VRAM while it draws each line. If the CPU writes at the same moment, the write is ignored. So the Game Boy gives you two safe windows:</p>
+<ul>
+<li><strong>VBlank</strong>: after the last visible line (line 143) the LCD spends 10 more line times (lines 144&ndash;153) doing nothing. That is about 1,100 machine cycles in which VRAM is yours, once per frame.</li>
+<li><strong>LCD off</strong>: clear bit 7 of <code>rLCDC</code> and the screen goes blank; VRAM is free all the time. This is how a program loads its tiles at start-up, or between levels.</li>
+</ul>
+<p>Switching the LCD off is only allowed during VBlank (doing it mid-frame can damage a real console&rsquo;s screen), so the routines wait first:</p>
+[[part gfx.asm | ; --- Wait until the LCD | ; --- Copy BC bytes]]
+<p><code>rLY</code> is the line currently being drawn. <code>wait_vblank</code> first waits for any VBlank already in progress to end, then for the next to begin, so it always returns at the very start of a fresh VBlank &mdash; the longest window you can get. It is also how every game paces itself to the screen: once the loop calls <code>wait_vblank</code>, it runs exactly once per frame.</p>
+
+<h3 id="1-copying-and-filling">Copying tiles and filling the map</h3>
+<p>Getting tiles into VRAM is a memory copy. The data sits in ROM, and <code>copy_bytes</code> moves it:</p>
+[[part gfx.asm | ; --- Copy BC bytes | ; --- Fill the whole background]]
+<p>Changing one map entry means turning (column, row) into an address, which is the formula above: row &times; 32 is five doublings of <code>HL</code>.</p>
+[[part gfx.asm | ; --- HL = VRAM_MAP0 | ; --- Use the same shades]]
+
+<h3 id="1-first-example">A complete example</h3>
+<p>This program loads five tiles, blanks the map, draws a frame around the edge of the visible screen with tile 3, and places a few other tiles. Read it top to bottom: it is the pattern every later program follows &mdash; LCD off, load tiles, build the map, LCD on.</p>
+[[file tiles_demo.asm]]
+<p><strong>What you see:</strong> a box outline around the whole screen, a solid block at column 5, row 5, and in the middle three copies of the same tile in a row, showing four horizontal stripes in four shades. The stripe tile is the one worth studying: its bytes pair up as (<code>$00,$00</code>), (<code>$FF,$00</code>), (<code>$00,$FF</code>), (<code>$FF,$FF</code>), giving colours 0, 1, 2, 3 from the two bit-planes.</p>
+[[shot tiles_demo | tiles_demo.asm: a frame of tile 3, a solid block, and three copies of the striped tile.]]
+<p class="bold-text">Key fact: the screen is a 20&times;18 grid of one-byte tile numbers pointing at 16-byte pictures. To change what is on screen, change a number in the map &mdash; and do it with the LCD off or in VBlank.</p>
+<h3 id="1-exercises">Try it yourself</h3>
+<ol>
+<li>Change the frame so it is two tiles thick. Which tile numbers do you need to write, and in which rows and columns?</li>
+<li>Add a fifth tile of your own design (a smiley face, say) and place it in a pattern across a row. How many bytes did you have to write to the map, and how many to tile memory?</li>
+<li>Switch the background to the second map at <code>$9C00</code> by setting bit 3 of <code>rLCDC</code> (<code>LCDCF_BG9C00</code>), draw something different in that map, and flip between the two with a button press once you have read Chapter 11.</li>
+</ol>
+</section>
+
+<section>
+<h1 id="2-palettes-and-shades">2. Palettes &amp; Shades</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="2-in-high-level-languages">In High-Level Languages</h2>
+<p>A pixel in most graphics libraries carries its colour with it: three numbers for red, green and blue, or an index into a palette array. Changing the colour of something on screen means finding every pixel that has that colour and rewriting it, or, if the library uses indexed colours, replacing an entry in the palette array and redrawing.</p>
+[[text]]
+for each pixel on screen:
+    if pixel == old_colour: pixel = new_colour
+[[/text]]
+<p>The cost is proportional to the number of pixels. A fade across a whole screen therefore means touching every pixel several times, which is why many libraries lean on the graphics card to do it.</p>
+<h2 id="2-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>A Game Boy pixel is not a shade but a <em>colour number</em> from 0 to 3. The shade you actually see comes from passing that number through a palette register. There are three on the original Game Boy:</p>
+<table>
+<tr><th>Register</th><th>Address</th><th>Used by</th></tr>
+<tr><td><code>rBGP</code></td><td><code>$FF47</code></td><td>Background and window</td></tr>
+<tr><td><code>rOBP0</code></td><td><code>$FF48</code></td><td>Sprites with the palette bit clear</td></tr>
+<tr><td><code>rOBP1</code></td><td><code>$FF49</code></td><td>Sprites with the palette bit set</td></tr>
+</table>
+
+<h3 id="2-the-palette-byte">The palette byte</h3>
+<p>A palette byte holds four 2-bit shades, one for each colour number, with colour 0 in the lowest two bits:</p>
+[[text]]
+bits 7-6   bits 5-4   bits 3-2   bits 1-0
+colour 3   colour 2   colour 1   colour 0
+[[/text]]
+<p>Each shade is 0 (lightest) to 3 (darkest). The usual value is <code>%11100100</code> &mdash; colour 3 maps to shade 3, colour 2 to 2, colour 1 to 1 and colour 0 to 0, so everything looks as drawn. Other values remap the whole screen in one instruction:</p>
+<ul>
+<li><code>%00011011</code> reverses the order: a negative image.</li>
+<li><code>%00000000</code> turns every colour into the lightest shade: a white-out.</li>
+<li><code>%11111111</code> makes everything black.</li>
+</ul>
+<p>Because the map stores tile numbers and tiles store colour numbers, a single write to <code>rBGP</code> changes every pixel on the screen. There is nothing to redraw.</p>
+
+<h3 id="2-fades-and-flashes">Fades and flashes</h3>
+<p>Fading out is a short sequence of palette bytes where each is a step lighter than the last. Colour 3 drops to shade 2, colour 2 to shade 1, and so on, finishing at all-white:</p>
+[[text]]
+%11100100   normal
+%10010000   one step lighter
+%01000000   two steps lighter
+%00000000   white
+[[/text]]
+<p>The fade table is just a list of bytes to write, one per few frames. This program shows four vertical bands, one for each colour, and walks the table down and back every second:</p>
+[[file palette_demo.asm]]
+<p><strong>What you see:</strong> four bands that fade together to white and return. Look at what the program does not do: after the first frame it never touches a tile or the map. The main loop does a single <code>LDH [rBGP], A</code> per step.</p>
+[[shot palette_demo | palette_demo.asm at the start of its fade: the four colours as four bands.]]
+<p>Sprites have their own palettes, and there is one important difference: for a sprite, colour 0 is <em>transparent</em>, whatever palette it is given. That is the whole transparency system (Chapter 6). Two sprite palettes let you give two kinds of sprite different looks without creating a second set of tiles.</p>
+
+<h3 id="2-no-clash">One palette, no clashes</h3>
+<p>Because the palette applies to the whole screen, and every pixel is free to be any of the four colours, there is no restriction on where each colour can appear. Any 8&times;8 tile can use all four. You never have to arrange artwork around a colour grid &mdash; draw whatever you like and the tiles hold it.</p>
+
+<h3 id="2-colour">Game Boy Color</h3>
+<p>The Game Boy Color extends this idea instead of replacing it. There are eight background palettes and eight sprite palettes, each of four colours chosen from 32,768 (15 bits: five each of red, green and blue). A second layer sits beside the tile map: an <em>attribute map</em>, one byte per tile, kept in a second bank of VRAM. The byte names which of the eight palettes that tile uses and can also flip it or choose a second tile bank.</p>
+<ul>
+<li>Colours are written through a pair of registers: <code>rBCPS</code> picks the byte of palette memory to write (set bit 7 to count up automatically after every write) and <code>rBCPD</code> receives the data. Each colour is two bytes: <code>0bbbbbgggggrrrrr</code>, low byte first. Like VRAM, palette memory cannot be written while the LCD is drawing (mode 3), so the demo sets it up with the LCD off.</li>
+<li>Bit 0 of <code>rVBK</code> chooses which bank of VRAM you are talking to. Bank 0 holds tiles and the tile map as before. Bank 1 holds the attribute map at the same addresses as the map.</li>
+</ul>
+<p>This demo paints the same four tiles twice: the top half of the screen uses palette 0 (white, red, green, blue), the bottom half palette 1 (black, yellow, cyan, magenta).</p>
+[[file cgb_demo.asm]]
+[[shot cgb_demo | cgb_demo.asm on a Game Boy Color: the same four tiles with palette 0 (top) and palette 1 (bottom).]]
+<p>Build it with <code>rgbfix -c</code> (the supplied Makefile does) so the cartridge header says it supports colour; on a colour console the boot ROM then leaves the colour hardware switched on. The rest of this book uses the original four-shade Game Boy; everything in it also runs on a Game Boy Color.</p>
+<p class="bold-text">Key fact: pixels hold colour <em>numbers</em>; a palette register turns numbers into shades. Change the palette byte and you change the whole screen at once, with no pixel touched.</p>
+<h3 id="2-exercises">Try it yourself</h3>
+<ol>
+<li>Change <code>FadeTable</code> so the screen fades to <em>black</em> instead of white.</li>
+<li>Make the screen flash: set <code>rBGP</code> to <code>%00011011</code> for a single frame whenever the timer reaches zero.</li>
+<li>In <code>cgb_demo.asm</code>, add a third palette and make the middle rows use it. Which byte of the attribute map selects it?</li>
+</ol>
+</section>

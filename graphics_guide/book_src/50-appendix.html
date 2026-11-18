@@ -1,0 +1,129 @@
+<section>
+<h1 id="appendix-a-library-reference">Appendix A: Library Reference</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+<p>Every routine in the book, by file. Inputs are registers; &ldquo;destroys&rdquo; lists what the caller must not rely on.</p>
+
+<h2 id="a-gfx">gfx.asm: the basics (Chapter 1, 2)</h2>
+<table>
+<tr><th>Routine</th><th>Input</th><th>Does</th></tr>
+<tr><td><code>wait_vblank</code></td><td>&mdash;</td><td>Returns at the start of the next VBlank</td></tr>
+<tr><td><code>lcd_off</code></td><td>&mdash;</td><td>Waits for VBlank, then switches the LCD off</td></tr>
+<tr><td><code>lcd_on</code></td><td>&mdash;</td><td>Switches the LCD on (background, sprites, <code>$8000</code> tiles)</td></tr>
+<tr><td><code>copy_bytes</code></td><td>HL source, DE destination, BC count</td><td>Copies memory</td></tr>
+<tr><td><code>fill_bytes</code></td><td>HL destination, BC count, A value</td><td>Fills memory</td></tr>
+<tr><td><code>fill_map</code></td><td>A tile</td><td>Fills the whole background map</td></tr>
+<tr><td><code>map_addr</code></td><td>B column, C row</td><td>HL = address in the background map (destroys DE)</td></tr>
+<tr><td><code>set_tile</code></td><td>A tile, B column, C row</td><td>Writes one map entry</td></tr>
+<tr><td><code>set_palette</code></td><td>A shades</td><td>Sets <code>rBGP</code>, <code>rOBP0</code> and <code>rOBP1</code></td></tr>
+</table>
+
+<h2 id="a-canvas">canvas.asm: pixels, lines, shapes (Chapters 3&ndash;5)</h2>
+<table>
+<tr><th>Routine</th><th>Input</th><th>Does</th></tr>
+<tr><td><code>canvas_clear</code></td><td>A colour</td><td>Fills the canvas</td></tr>
+<tr><td><code>plot</code></td><td>B x, C y, D colour</td><td>Sets one pixel (ignored if off the canvas)</td></tr>
+<tr><td><code>toggle_pixel</code></td><td>B x, C y</td><td>Inverts one pixel</td></tr>
+<tr><td><code>draw_hline</code>, <code>draw_vline</code></td><td>B x, C y, D colour, E length</td><td>Straight line</td></tr>
+<tr><td><code>draw_line</code></td><td>B x0, C y0, D x1, E y1; <code>wColour</code></td><td>Any line (Bresenham)</td></tr>
+<tr><td><code>draw_rect</code>, <code>fill_rect</code></td><td>B x, C y, D width, E height; <code>wColour</code></td><td>Rectangle outline or solid</td></tr>
+<tr><td><code>draw_circle</code>, <code>fill_circle</code></td><td>B cx, C cy, E radius; <code>wColour</code></td><td>Circle outline or solid</td></tr>
+<tr><td><code>canvas_map</code></td><td>&mdash;</td><td>Lays tiles 0&ndash;255 on the map as a 16&times;16 block at column 2, row 1</td></tr>
+<tr><td><code>canvas_to_vram</code></td><td>&mdash;</td><td>Copies the canvas to tile memory (LCD off)</td></tr>
+</table>
+
+<h2 id="a-tilemap">tilemap.asm: the shadow map (Chapters 4, 5)</h2>
+<table>
+<tr><th>Routine</th><th>Input</th><th>Does</th></tr>
+<tr><td><code>shadow_fill</code></td><td>A tile</td><td>Fills the RAM copy of the map</td></tr>
+<tr><td><code>shadow_set</code></td><td>A tile, B column, C row</td><td>Writes one entry</td></tr>
+<tr><td><code>shadow_hline</code>, <code>shadow_vline</code></td><td>A tile, B column, C row, E length</td><td>A line of tiles</td></tr>
+<tr><td><code>flood_fill</code></td><td>A new tile, B column, C row</td><td>Replaces a connected region of one tile with another</td></tr>
+<tr><td><code>shadow_to_vram</code></td><td>&mdash;</td><td>Copies the shadow map to the real map (LCD off)</td></tr>
+</table>
+
+<h2 id="a-oam">oam.asm: sprites (Chapter 6)</h2>
+<table>
+<tr><th>Routine</th><th>Input</th><th>Does</th></tr>
+<tr><td><code>oam_init</code></td><td>&mdash;</td><td>Copies the DMA routine to HRAM and hides all sprites (<code>oam_clear</code> alone only hides them)</td></tr>
+<tr><td><code>oam_begin</code>, <code>oam_end</code></td><td>&mdash;</td><td>Start a frame's sprite list; hide the unused entries</td></tr>
+<tr><td><code>oam_add</code></td><td>B x, C y, D tile, E flags</td><td>Adds one sprite (screen coordinates)</td></tr>
+<tr><td><code>draw_metasprite</code></td><td>HL definition, B x, C y</td><td>Adds a group of sprites</td></tr>
+<tr><td><code>hOAMDMA</code></td><td>&mdash;</td><td>Copies the shadow OAM to OAM (call in VBlank)</td></tr>
+</table>
+
+<h2 id="a-scroll">scroll.asm: scrolling (Chapter 7)</h2>
+<table>
+<tr><th>Routine</th><th>Input</th><th>Does</th></tr>
+<tr><td><code>stream_column</code></td><td>A world column</td><td>Writes that column of the one-dimensional world into the background map</td></tr>
+<tr><td><code>stream_world_column</code></td><td>A column, B first row</td><td>Writes 19 tiles of the 64&times;64 world down a map column</td></tr>
+<tr><td><code>stream_world_row</code></td><td>A row, B first column</td><td>Writes 21 tiles of the 64&times;64 world along a map row</td></tr>
+</table>
+
+<h2 id="a-text">text.asm: text (Chapter 8)</h2>
+<table>
+<tr><th>Routine</th><th>Input</th><th>Does</th></tr>
+<tr><td><code>text_init</code></td><td>&mdash;</td><td>Loads the font as tiles <code>$20&ndash;$7F</code> (LCD off)</td></tr>
+<tr><td><code>text_window</code>, <code>text_background</code></td><td>&mdash;</td><td>Choose which map text goes to</td></tr>
+<tr><td><code>print_at</code></td><td>B column, C row</td><td>Moves the cursor</td></tr>
+<tr><td><code>print_char</code></td><td>A character</td><td>Prints one character (safe with the LCD on)</td></tr>
+<tr><td><code>print_string</code></td><td>HL zero-terminated string</td><td>Prints a string</td></tr>
+<tr><td><code>print_number</code></td><td>A 0&ndash;255</td><td>Prints three digits</td></tr>
+</table>
+
+<h2 id="a-vblank">vblank.asm: frames and queues (Chapter 9)</h2>
+<table>
+<tr><th>Routine</th><th>Input</th><th>Does</th></tr>
+<tr><td><code>vblank_init</code></td><td>&mdash;</td><td>Enables the VBlank interrupt in <code>rIE</code>; the program must then execute <code>EI</code></td></tr>
+<tr><td><code>wait_frame</code></td><td>&mdash;</td><td>Sleeps until the next frame begins</td></tr>
+<tr><td><code>queue_tile</code></td><td>A tile, B column, C row</td><td>Queues a map change for VBlank</td></tr>
+<tr><td><code>queue_number</code></td><td>A 0&ndash;255, B column, C row</td><td>Queues three digit tiles</td></tr>
+</table>
+
+<h2 id="a-joypad">joypad.asm: input (Chapter 11)</h2>
+<table>
+<tr><th>Routine</th><th>Input</th><th>Does</th></tr>
+<tr><td><code>read_joypad</code></td><td>&mdash;</td><td>Updates <code>wJoy</code> (held) and <code>wJoyNew</code> (newly pressed); A = <code>wJoy</code></td></tr>
+</table>
+
+<h2 id="a-cgb">cgb.asm: Game Boy Color (Chapter 10)</h2>
+<table>
+<tr><th>Routine</th><th>Input</th><th>Does</th></tr>
+<tr><td><code>hdma_copy</code></td><td>HL source (16-aligned), DE VRAM destination, B blocks of 16</td><td>Copies by hardware; the CPU waits</td></tr>
+</table>
+
+<h2 id="a-fast">fast.asm: speed (Chapter 10)</h2>
+<table>
+<tr><th>Routine</th><th>Input</th><th>Does</th></tr>
+<tr><td><code>copy_unrolled</code></td><td>HL source, DE destination, B blocks of 16</td><td>6 cycles per byte</td></tr>
+<tr><td><code>copy_stack</code></td><td>HL source, DE destination, B blocks of 16</td><td>4.5 cycles per byte; leaves interrupts off</td></tr>
+<tr><td><code>fill_stack</code></td><td>HL end address, D blocks of 16, A value</td><td>2 cycles per byte; leaves interrupts off</td></tr>
+<tr><td><code>map_addr_fast</code></td><td>B column, C row</td><td>HL = background map address</td></tr>
+</table>
+</section>
+
+<section>
+<h1 id="appendix-b-registers">Appendix B: Graphics Registers</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+<table>
+<tr><th>Register</th><th>Address</th><th>Purpose</th></tr>
+<tr><td><code>rLCDC</code></td><td><code>$FF40</code></td><td>Bit 7 LCD on; 6 window map at <code>$9C00</code>; 5 window on; 4 tiles from <code>$8000</code>; 3 background map at <code>$9C00</code>; 2 sprites 8&times;16; 1 sprites on; 0 background on</td></tr>
+<tr><td><code>rSTAT</code></td><td><code>$FF41</code></td><td>Bits 1&ndash;0 current LCD mode (mode 3: VRAM and OAM locked; mode 2: OAM locked); bit 6 interrupt on LY = LYC</td></tr>
+<tr><td><code>rSCY</code>, <code>rSCX</code></td><td><code>$FF42</code>, <code>$FF43</code></td><td>Background scroll</td></tr>
+<tr><td><code>rP1</code></td><td><code>$FF00</code></td><td>Joypad: write bit 4 or 5 low to select a group, read bits 3&ndash;0 (0 = pressed)</td></tr>
+<tr><td><code>rLY</code></td><td><code>$FF44</code></td><td>Line being drawn: 0&ndash;143 visible, 144&ndash;153 VBlank</td></tr>
+<tr><td><code>rLYC</code></td><td><code>$FF45</code></td><td>Line to compare with <code>rLY</code></td></tr>
+<tr><td><code>rDMA</code></td><td><code>$FF46</code></td><td>Write a high byte to copy <code>$XX00-$XX9F</code> to OAM</td></tr>
+<tr><td><code>rBGP</code></td><td><code>$FF47</code></td><td>Background shades</td></tr>
+<tr><td><code>rOBP0</code>, <code>rOBP1</code></td><td><code>$FF48</code>, <code>$FF49</code></td><td>Sprite shades</td></tr>
+<tr><td><code>rWY</code>, <code>rWX</code></td><td><code>$FF4A</code>, <code>$FF4B</code></td><td>Window position (WX is the column plus 7)</td></tr>
+<tr><td><code>rIE</code>, <code>rIF</code></td><td><code>$FFFF</code>, <code>$FF0F</code></td><td>Interrupts enabled / pending: bit 0 VBlank, bit 1 STAT</td></tr>
+<tr><td><code>rDIV</code></td><td><code>$FF04</code></td><td>Counts up every 64 machine cycles; any write resets it</td></tr>
+<tr><td><code>rVBK</code></td><td><code>$FF4F</code></td><td>(Colour) Selects VRAM bank 0 or 1</td></tr>
+<tr><td><code>rHDMA1</code>&ndash;<code>rHDMA5</code></td><td><code>$FF51</code>&ndash;<code>$FF55</code></td><td>(Colour) Hardware copy: source, destination, length and start</td></tr>
+<tr><td><code>rBCPS</code>, <code>rBCPD</code></td><td><code>$FF68</code>, <code>$FF69</code></td><td>(Colour) Background palette index and data</td></tr>
+<tr><td><code>rOCPS</code>, <code>rOCPD</code></td><td><code>$FF6A</code>, <code>$FF6B</code></td><td>(Colour) Sprite palette index and data</td></tr>
+</table>
+</section>
+
+</body>
+</html>

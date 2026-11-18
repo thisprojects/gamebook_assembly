@@ -1,0 +1,154 @@
+<section>
+<h1 id="6-sprites">6. Sprites</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="6-in-high-level-languages">In High-Level Languages</h2>
+<p>A sprite is an object with an image and a position, and the engine draws it every frame. Behind the scenes the engine <em>blits</em> (copies) the image onto the screen, skips transparent pixels, trims anything that hangs over the edge, and either redraws the whole scene or remembers the background under the sprite so it can restore it afterwards. Overlapping sprites need a drawing order.</p>
+[[text]]
+for each sprite, back to front:
+    for each pixel of its image:
+        if pixel is not transparent and (x, y) is on screen: screen[y][x] = pixel
+[[/text]]
+<p>The expensive parts are the copying and the bookkeeping, both proportional to the sprite's area, and both done by the program every frame.</p>
+<h2 id="6-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>On the Game Boy <em>the sprites are in the hardware</em>. You do not draw them; you list them. The LCD controller keeps a table of 40 sprites, and for every line of the screen it looks through the table, finds the ones that cross that line, and draws them over the background. Transparency, clipping at the edges, flipping and layering are all done as part of drawing the line. There is no erasing, because nothing was ever written to the background.</p>
+
+<h3 id="6-oam">The sprite table (OAM)</h3>
+<p>Each sprite is four bytes in <em>OAM</em>, object attribute memory, at <code>$FE00-$FE9F</code>:</p>
+<table>
+<tr><th>Byte</th><th>Meaning</th></tr>
+<tr><td>0</td><td>Y position + 16</td></tr>
+<tr><td>1</td><td>X position + 8</td></tr>
+<tr><td>2</td><td>Tile number (always from the <code>$8000</code> tile range)</td></tr>
+<tr><td>3</td><td>Flags: bit 7 behind-background priority, bit 6 flip vertically, bit 5 flip horizontally, bit 4 palette (<code>rOBP0</code> or <code>rOBP1</code>)</td></tr>
+</table>
+<p>The offsets of 16 and 8 are what let sprites slide smoothly on and off the screen: Y = 16 puts a sprite's top at the top of the screen; Y = 0 is entirely above the screen, which is how you hide a sprite. X = 8 puts it flush against the left edge; X = 0 is hidden.</p>
+<p>The hardware also does the following without any code from you:</p>
+<ul>
+<li><strong>Transparency.</strong> Colour 0 is always transparent. Draw sprites with a colour-0 background and there is nothing to mask: there is no AND-and-OR dance with a second image.</li>
+<li><strong>Clipping.</strong> A sprite partly off any edge shows only the part that is on screen. A sprite can slide in from the left or out through the bottom with no checking.</li>
+<li><strong>Flipping.</strong> Bits 5 and 6 mirror the tile. A symmetric character needs only half its art: draw the left half once and use it twice, the second time flipped.</li>
+<li><strong>Priority.</strong> With bit 7 set, the sprite appears <em>behind</em> background colours 1&ndash;3 (but in front of colour 0), so characters can walk behind trees and doorways.</li>
+</ul>
+
+<h3 id="6-limits">The limits</h3>
+<p>There are 40 sprites in total, and at most <strong>10 on any one scanline</strong>. If an eleventh crosses a line it is not drawn on that line &mdash; the sprites that come later in the table lose. That is why a large character is usually built from tiles that sit on different lines of the screen, and why games that need many sprites in a row shuffle the table order each frame so no single one always disappears.</p>
+<p>By setting bit 2 of <code>rLCDC</code> (<code>LCDCF_OBJ16</code>) every sprite becomes 8&times;16: two tiles tall, taken as an even/odd pair. This is useful for tall characters, and costs nothing in the sprite count. Most examples here use 8&times;8; the one in Chapter 11 uses the tall mode.</p>
+
+<h3 id="6-shadow-oam">The shadow OAM and DMA</h3>
+<p>OAM, like VRAM, can only be written safely at certain times. During the LCD's scan of the sprite table the CPU is locked out. The solution is to keep a copy of the table in work RAM &mdash; the <em>shadow OAM</em> &mdash; to update that at leisure, and to have the DMA hardware copy the whole 160 bytes into OAM once per frame, in VBlank.</p>
+<p>Writing a value to <code>rDMA</code> (<code>$FF46</code>) starts a copy of 160 bytes from <code>$XX00</code> (where XX is the value) into OAM. It takes 160 machine cycles, much faster than a loop would, but during those cycles the CPU can only reach high RAM (<code>$FF80-$FFFE</code>), so the routine that starts the transfer has to run from there. The program copies it into place at start-up:</p>
+[[part oam.asm | SECTION "OAMDMACode" | SECTION "OAMRoutines"]]
+<p>The shadow buffer sits at an address ending in <code>$00</code> (<code>ALIGN[8]</code>), which is a rule of DMA: the source address is a high byte and nothing else. <code>LOAD ... HRAM</code> tells the assembler that the code is stored in ROM but will run at an HRAM address, so <code>hOAMDMA</code> is the place to <code>CALL</code> it from.</p>
+
+<h3 id="6-adding-sprites">Adding sprites to the list</h3>
+<p>A frame starts by emptying the list, adds a sprite for everything that should appear, and ends by hiding all unused entries. <code>oam_add</code> converts screen coordinates to the offset form and writes four bytes:</p>
+[[part oam.asm | oam_add: | draw_metasprite:]]
+<p>Adding 16 and 8 happens in 8-bit arithmetic on purpose. A sprite whose x is, say, 250 (that is, &minus;6 as a signed number) is stored as 258 &minus; 256 = 2, which is the hardware&rsquo;s way of saying &ldquo;six pixels hanging off the left edge&rdquo;. The wrap-around is exactly what we want, and it is why a sprite can enter the screen from the left with no special case.</p>
+
+<h3 id="6-metasprites">Metasprites</h3>
+<p>Most characters are bigger than 8&times;8, so they are groups of sprites that move together: <em>metasprites</em>. A definition is a count and then, for each part, an offset from the group's origin, a tile and the flags. <code>draw_metasprite</code> adds all the parts at a position:</p>
+[[part oam.asm | draw_metasprite: | oam_end:]]
+<p>Because flipping is free, a symmetrical figure is described with the same tile twice:</p>
+[[asm]]
+InvaderA:
+    DB 2                          ; two parts
+    DB 0, 0, 3, 0                 ; y offset, x offset, tile 3, no flags
+    DB 0, 8, 3, OAMF_XFLIP        ; 8 pixels to the right: tile 3 mirrored
+[[/asm]]
+<p>Animation is picking a different metasprite (or different tile numbers) each frame. There is no need to redraw or erase anything.</p>
+
+<h3 id="6-example">A complete example</h3>
+<p>Three rows of animated invaders march across a checkerboard, and a UFO enters from the left edge and leaves through the right, using the hardware's clipping for both. The invaders are two tiles wide but only one tile of artwork is stored: the right half is the left half flipped. Every 16 frames the artwork changes between two tile numbers.</p>
+[[file invader.asm]]
+<p><strong>What you see:</strong> ten sprites in total: three invaders of two sprites each, a fourth invader walking along the bunker row, and the UFO. The checkerboard shows through the transparent pixels of each sprite. The UFO's x position is computed as <code>wUfoX - 16</code> in 8-bit arithmetic, so as <code>wUfoX</code> counts from zero it starts off the left edge (a &ldquo;negative&rdquo; x) and slides in, with the hardware clipping the portion that is still outside. At the other end it leaves the same way.</p>
+[[shot invader | invader.asm: marching invaders, the UFO, and the invader hiding behind a bunker.]]
+<p>Notice the main loop: <code>wait_vblank</code>, then <code>hOAMDMA</code> to send the <em>previous</em> frame's list, then work out the new frame's list. Updating the shadow and copying it a frame later is what makes sprites appear and move without any flicker or tearing.</p>
+<h3 id="6-priority">Behind the scenery, and a second palette</h3>
+<p>Two more flags in the same byte give a sprite a place in the scene. The <strong>priority</strong> bit (<code>OAMF_PRI</code>) puts a sprite <em>behind</em> every background pixel that is not colour 0. Sprites still show through the empty parts of the background, but the bunker tiles in front of them hide them. That is how a character walks behind a tree, a doorway or a wall, and it costs nothing: the fourth invader in the example is an ordinary sprite with one extra flag on each of its two halves. The bunkers use background colour 2, which is how they hide the invader; the checkerboard behind uses colour 1, so the invader is also half hidden there, as the screen shows. Draw scenery you want to walk behind in colours 1&ndash;3, and leave the empty background as colour 0.</p>
+<p>The <strong>palette</strong> bit (<code>OAMF_PAL1</code>) chooses <code>rOBP1</code> instead of <code>rOBP0</code> for that sprite. In the example <code>rOBP1</code> is set to <code>%00011011</code>, the reverse of the normal palette, so the UFO's solid body comes out in the lightest shade where the invaders' is the darkest. Two kinds of sprite look different without a single extra tile.</p>
+
+<h3 id="6-flicker">More than ten sprites on a line</h3>
+<p>The limit of ten sprites per line is a hardware fact, and a program that has more has to decide who loses. The hardware always keeps the first ten <em>in table order</em>, so the plain approach, adding sprites in the same order every frame, means the last ones in the list are never seen on that line. The usual cure is to <strong>rotate the order</strong>: each frame, start the table one sprite further along. No sprite is lost for good. Each is missing on a few frames out of fourteen, which the eye reads as a mild flicker rather than as a sprite that has vanished.</p>
+<p>This demo puts fourteen sprites on a single scanline. Press A to turn the rotation off and on: with it off, the same ten are drawn and four never appear; with it on, all fourteen appear and the missing four keep changing.</p>
+[[file flicker_demo.asm]]
+<p><strong>What you see:</strong> a row of blocks that shimmers, with a different handful missing on every frame. The test suite counts the blocks on the line frame by frame: exactly ten each time, and over fourteen frames all fourteen positions have been drawn.</p>
+[[shot flicker_demo | flicker_demo.asm: fourteen sprites on one line, only ten drawn on any frame.]]
+
+<p class="bold-text">Key fact: sprites are a table, not a drawing operation. Write four bytes per sprite into a RAM copy, let DMA move it during VBlank, and the hardware does the transparency, clipping, flipping and layering.</p>
+<h3 id="6-exercises">Try it yourself</h3>
+<ol>
+<li>Add a second UFO moving the opposite way, with its x position counting <em>down</em> so it enters from the right edge. Does the entry code need any special case?</li>
+<li>In <code>flicker_demo.asm</code>, make the sprites 9 pixels apart so only two of the fourteen overlap a line. Does rotation still help?</li>
+<li>Give the bunkers a gap in the middle, so the priority invader appears in the gap as well as in front of the checkerboard. Which tile numbers do you change?</li>
+<li>Change the invader metasprite into three sprites wide. Which one needs a flip flag to keep the shape symmetrical?</li>
+</ol>
+</section>
+
+<section>
+<h1 id="7-scrolling">7. Scrolling</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="7-in-high-level-languages">In High-Level Languages</h2>
+<p>Scrolling a scene means shifting the whole picture. A simple engine redraws everything with a camera offset subtracted from each position; a smarter one copies the existing pixels sideways and draws only the new strip at the edge. Tile-based engines keep a large map of tiles and a camera, and draw only the tiles that overlap the screen.</p>
+[[text]]
+for each visible tile column c and row r:
+    draw tile map[r][c + camera / tile_width] at (c * 8 - camera mod 8, r * 8)
+[[/text]]
+<p>Either way, the cost is proportional to the area of the screen and is paid again every frame the camera moves.</p>
+<h2 id="7-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>The Game Boy scrolls in the display hardware. Two registers, <code>rSCX</code> and <code>rSCY</code>, say where in the 256&times;256 background map the top-left corner of the screen sits. Writing a new value moves the entire picture, at no cost to the CPU, by one pixel or by 200. The map wraps in both directions, so scrolling past the right edge shows the left edge again.</p>
+[[asm]]
+    LDH A, [rSCX]
+    INC A
+    LDH [rSCX], A              ; the whole screen moves one pixel left
+[[/asm]]
+
+<h3 id="7-streaming">Streaming a world through the map</h3>
+<p>The map is 32 tiles wide but the screen shows 20, so there are 12 columns outside the view. A world much wider than the map is handled by <em>streaming</em>: as the camera moves, the program writes the next column of the world into the map just before it scrolls into view &mdash; and it can overwrite the one that is leaving, which is already off the other side. The map becomes a ring buffer.</p>
+<p>When the camera is at pixel <code>camX</code>, the columns visible are <code>camX / 8</code> up to <code>camX / 8 + 19</code>. So every time <code>camX</code> reaches a multiple of 8, the program has to store world column <code>camX / 8 + 20</code> into map column (<em>that number</em> mod 32). It is a single column of 18 bytes: about 150 cycles, well inside the VBlank budget.</p>
+<p>The world here is stored as a table of heights: sky above, a grass tile at the surface and ground below. The assembler generates the table at build time with a <code>FOR</code> loop:</p>
+[[part scroll.asm | ; Tiles: 0 = sky | WorldHeights:]]
+<p>and the table itself:</p>
+[[part scroll.asm | WorldHeights: | ; --- end of scroll.asm]]
+<p>A map column is 32 bytes apart (one per row), so the routine adds 32 to its pointer for each row it writes. Vertical scrolling is the same idea turned through 90 degrees: write the next <em>row</em> of 20 consecutive tiles into the map.</p>
+
+<h3 id="7-window">The window</h3>
+<p>Scrolling moves the whole background, including anything you meant to be fixed on screen: a score, a status bar. The <em>window</em> is a second background layer that does not scroll. It draws over the background starting from a position given by <code>rWY</code> (the line) and <code>rWX</code> (the column plus 7), and reads its tiles from the second map at <code>$9C00</code>. Bits 5 and 6 of <code>rLCDC</code> switch it on and select that map.</p>
+<p>This example scrolls the camera one pixel per frame, streams new columns, and has a window HUD: a strip along the bottom that stays still.</p>
+[[file scroll_demo.asm]]
+<p><strong>What you see:</strong> rolling hills and grass moving left, with a row of box tiles fixed along the bottom edge. Look at the main loop: the only per-frame scrolling work is incrementing the camera and storing it in <code>rSCX</code>. The column streaming is the occasional extra (every eighth frame).</p>
+[[shot scroll_demo | scroll_demo.asm: streamed hills, with the window HUD fixed along the bottom.]]
+<p>Writing the scroll register during VBlank, straight after <code>wait_vblank</code>, means the new value applies from the first line of the next frame, so a frame is never drawn half at the old position and half at the new one. That is the whole story of avoiding tearing on this machine.</p>
+
+<h3 id="7-two-directions">Scrolling in two directions</h3>
+<p>A level that scrolls both ways works the same way, with one more routine. A new <em>row</em> is written along the map instead of down it, wrapping at the end of the row, and a world big enough to need rows and columns can no longer be generated from a one-dimensional table. This world is 64&times;64 tiles stored in ROM (4 KB, generated by the assembler with two nested <code>FOR</code> loops: diagonal paths, flowers on a grid, and grass).</p>
+<p>The two routines never calculate an address for each tile. They work out the first source and destination addresses once, then step: 64 bytes on for the next row of the world, 32 bytes on in the map, with a wrap from the bottom of the map to the top, and a wrap along the map row from column 31 back to 0:</p>
+[[part scroll.asm | ; --- Scrolling in both directions | WorldData:]]
+<p>Which tiles to stream, and when, follows from where the camera is. With the camera at pixel (<code>camX</code>, <code>camY</code>), the left edge of the screen is tile column <code>camX / 8</code> and the top edge is tile row <code>camY / 8</code>. Each pixel step is compared with the previous one, and only when it crosses into a new tile is something streamed:</p>
+<ul>
+<li>moving <strong>right</strong>: the column just beyond the right edge, <code>camX / 8 + 20</code>;</li>
+<li>moving <strong>left</strong>: the column at the left edge, <code>camX / 8</code>;</li>
+<li>moving <strong>down</strong>: the row just below the screen, <code>camY / 8 + 18</code>;</li>
+<li>moving <strong>up</strong>: the row at the top edge, <code>camY / 8</code>.</li>
+</ul>
+<p>A new column is 19 tiles tall (one more than the 18 rows on screen, since the scroll can leave part of a nineteenth showing), and a new row 21 tiles long. The demo walks the camera round a square, so every one of the four cases is exercised:</p>
+[[file scroll2d_demo.asm]]
+<p><strong>What you see:</strong> a field of grass with diagonal paths and flowers, scrolling right, then down, then left, then up, returning to where it started. The test suite compares every visible tile in the map with the world's own formula, at forty moments along the route.</p>
+[[shot scroll2d_demo | scroll2d_demo.asm: part of the 64&times;64 world.]]
+
+<h3 id="7-raster">Raster effects: changing the scroll mid-frame</h3>
+<p>Because scrolling is a register, nothing stops you changing it <em>while the screen is being drawn</em>. The LCD can interrupt the CPU when it reaches a chosen line: write the line number to <code>rLYC</code>, set bit 6 of <code>rSTAT</code> and enable the STAT interrupt. The handler then changes <code>rSCX</code> and the lines below the split use the new value. This is how games get parallax: distant parts of the screen scrolling more slowly than near ones.</p>
+<p>Here the top half scrolls at half the speed of the bottom half. The VBlank handler sets the scroll for the top region at the start of the frame; the STAT handler, which fires just before line 72, sets it for the bottom. The main loop sleeps with <code>HALT</code> between interrupts and moves two counters.</p>
+[[file parallax_demo.asm]]
+<p><strong>What you see:</strong> two bands of vertical bars, the upper moving at half the speed of the lower, like distant and near scenery. Note how the main loop ignores the STAT interrupt (it wakes the CPU too) by checking the <code>wVBlank</code> flag: it only does the frame's work when the VBlank handler says a new frame has begun.</p>
+[[shot parallax_demo | parallax_demo.asm: the top band scrolls at half the speed of the bottom band.]]
+<p>Raster effects need care: the handler must be short, because it runs during the visible part of the frame, and it should keep to a simple register write or two. The same trick, with a table of values, produces wobbling water and heat-haze.</p>
+<p class="bold-text">Key fact: scrolling is two registers and a ring-buffered map. Write the new column just ahead of the screen, change <code>rSCX</code> during VBlank, and use the window for anything that must stand still.</p>
+<h3 id="7-exercises">Try it yourself</h3>
+<ol>
+<li>Make the camera in <code>scroll2d_demo.asm</code> move diagonally, down and right at once. How many routines are called in a frame where both edges are crossed, and does it still fit in VBlank?</li>
+<li>Make the camera run at 3 pixels a frame. Why does the tile-change test in the streaming code still work, and what would have gone wrong with a test of <code>AND 7</code>?</li>
+<li>Move the parallax split to line 100 and make the <em>top</em> layer the faster one. Which handler needs to change?</li>
+</ol>
+</section>

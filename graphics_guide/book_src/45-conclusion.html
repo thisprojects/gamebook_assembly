@@ -1,0 +1,10 @@
+<section>
+<h1 id="conclusion">Conclusion</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+<p>Across eleven chapters one idea keeps coming back: <strong>describe the picture and let the hardware draw it.</strong> A screen is a grid of tile numbers. A colour is a palette lookup. A sprite is a four-byte table entry. Scrolling is two registers. Even text is a row of tile numbers in the map. What is left for the program to do is bookkeeping: keep changes in RAM, then move them to video memory in the narrow window the hardware allows.</p>
+
+<h2 id="what-was-verified">What has and has not been verified</h2>
+<p>Every program here is assembled with no warnings and run on an emulated Game Boy (PyBoy) by an automated test, which checks video memory, work RAM, sprite memory, the picture on the screen and, for the later chapters, the response to button presses. The timings in Chapter 10 come from the emulator's divider register and agree with counting cycles by hand to within a couple of percent; real hardware was not measured.</p>
+<p>Two things are worth knowing. First, nothing was run on real hardware. The emulator is accurate enough for everything in this book, but a real console is less forgiving: an emulator can let a badly timed VRAM write succeed where a console would drop it, so keep to the VBlank and LCD-off rules even when something appears to work. Second, the Game Boy Color demonstrations (the palettes in Chapter 2 and the hardware copy in Chapter 10) were checked only in the emulator's colour mode. The rest of the book uses nothing beyond the original hardware, and runs on both.</p>
+<p>Sound, which the Game Boy does with four channels and a handful of registers, deserves a book of its own and is left for one.</p>
+</section>

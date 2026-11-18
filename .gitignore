@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.o
+*.gb
+*.sym
+*.map
+*.sav
