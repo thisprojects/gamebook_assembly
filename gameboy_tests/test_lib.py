@@ -9,7 +9,6 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LIB = f'{ROOT}/gameboy_lib'
 EXAMPLES = f'{ROOT}/gameboy_examples'
 BOOK = f'{ROOT}/gameboy_book.html'
-Z80_BOOK = f'{ROOT}/z80_book.html'
 TMP = tempfile.mkdtemp(prefix='gbbeginners_')
 
 
@@ -164,7 +163,7 @@ def test(fn):
 PROGRAMS = ['first', 'example1', 'variables', 'conditionals', 'bitwise', 'loops', 'counter', 'test',
             'print_a_char', 'print_hello', 'print_at', 'print_block', 'wait_key', 'beep']
 ROUTINES = {'debug_output': (), 'divide': (), 'assert_a_equals': ('debug_output',)}
-# examples/ holds copies of lib/ files under the book's other names (as in the Z80 repo)
+# examples/ holds copies of lib/ files under the book's other names 
 EXAMPLE_TWINS = {'first': 'first', 'debug_output': 'debug_output', 'example1': 'example1',
                  'load_example': 'variables', 'flash': 'bitwise', 'conditionals': 'conditionals', 'loops': 'loops'}
 
@@ -777,32 +776,22 @@ def book_listings_are_the_tested_files():
                 assert line.rstrip() in plain, f'{name}: line missing from the book: {line!r}'
 
 @test
-def book_has_every_chapter_of_the_z80_book():
-    z_text, z = parse_book(Z80_BOOK)
+def book_has_every_chapter_and_stands_alone():
     g_text, g = parse_book(BOOK)
-    assert len(g) == len(z) == 16, (len(g), len(z))
-    for (zid, zhtml), (gid, ghtml) in zip(z, g):
-        zt = re.search(r'<h1>(.*?)</h1>', zhtml).group(1)
-        gt = re.search(r'<h1>(.*?)</h1>', ghtml).group(1)
-        assert re.match(r'(\d+\.|)', zt).group(0) == re.match(r'(\d+\.|)', gt).group(0), (zt, gt)
-        restructured = gid in ('debug-output-routines', 'appendix-debug-output-routine')   # the debug explanation lives in Appendix 1
-        if not restructured:
-            assert heading_counts(zhtml) == heading_counts(ghtml), f'{zt}: {heading_counts(zhtml)} headings in the Z80 book, {heading_counts(ghtml)} here'
-        assert zhtml.count('<table>') <= ghtml.count('<table>'), zt
-        if not restructured:
-            assert zhtml.count('<pre>') - 1 <= ghtml.count('<pre>') + 3, f'{zt}: far fewer code blocks than the Z80 book'
-    # the explanations the Z80 book gives in its opening chapter are all in Appendix 1 here
+    assert len(g) == 16, len(g)
+    titles = [re.search(r'<h1>(.*?)</h1>', html).group(1) for _, html in g]
+    numbers = [int(m.group(1)) for t in titles for m in [re.match(r'(\d+)\.', t)] if m]
+    assert numbers == list(range(1, 13)), numbers
+    low = re.sub(r'<[^>]+>', ' ', g_text).lower()
+    for word in ('spectrum', 'zx ', 'z80', 'norbert', 'norbsoft', 'pasmo'):
+        assert word not in low, f'the guide is for the Game Boy only, but mentions {word!r}'
+    # the explanations of the debug routines are all in Appendix 1; the opening chapter is short
     appendix = dict(g)['appendix-debug-output-routine']
     for h in ('debug-init', 'debug-print-char', 'debug-print-string', 'debug-print-number', 'how-to-use-it'):
         assert f'id="{h}"' in appendix, h
     early = dict(g)['debug-output-routines']
     assert 'debug-init' not in early and len(early) < len(appendix) / 2, 'the opening chapter should be short'
     assert 'Appendix 1' in early and 'INCLUDE' in early
-    # every Z80 lib/ and examples/ file has a Game Boy counterpart
-    assert {f for f in os.listdir(f'{ROOT}/lib') if f.endswith('.asm')} <= {f for f in os.listdir(LIB) if f.endswith('.asm')}
-    z_ex = {f for f in os.listdir(f'{ROOT}/examples') if f.endswith('.asm')}
-    assert z_ex == {f for f in os.listdir(EXAMPLES) if f.endswith('.asm')}, 'examples/ and gameboy_examples/ differ'
-    assert set(os.listdir(f'{ROOT}/tests')) >= {'test_lib.py'} and os.path.exists(f'{ROOT}/gameboy_tests/test_lib.py')
 
 @test
 def book_links_and_ids_are_sound():

@@ -52,7 +52,7 @@ mgba first.gb
 <p class="bold-text">SP: Stack pointer—points to the current top of the stack.</p>
 <p class="bold-text">PC: Program counter—the address of the next instruction. You don't manipulate this directly; jumps and calls change it.</p>
 <p class="bold-text">F: Flags register—holds the results of comparisons and arithmetic, as a few on/off switches called flags. The important ones are zero (Z, "the last result was 0") and carry (C, "the last result didn't fit in a byte"). Chapter 4 shows how to use them to make decisions.</p>
-<div class="note"><strong>If you know the Z80, what's different?</strong> (Everyone else can skip this box.) The Game Boy CPU has no IX/IY registers, no shadow registers (so no EX or EXX), no IN/OUT instructions (hardware is reached through memory addresses instead), no DJNZ, no LDIR/LDDR block moves, and no 16-bit ADC/SBC. It adds LDH (a short form for the $FF00 hardware area), LD A,[HL+] and LD A,[HL-] (load and step the pointer), SWAP (swap the two halves of a byte), and STOP. This guide points out each difference where it first matters.</div>
+<div class="note"><strong>If you have seen other 8-bit assembly, what's different?</strong> (Everyone else can skip this box.) The Game Boy CPU has no IX/IY registers, no shadow registers (so no EX or EXX), no IN/OUT instructions (hardware is reached through memory addresses instead), no DJNZ, no LDIR/LDDR block moves, and no 16-bit ADC/SBC. It adds LDH (a short form for the $FF00 hardware area), LD A,[HL+] and LD A,[HL-] (load and step the pointer), SWAP (swap the two halves of a byte), and STOP. This guide points out each difference where it first matters.</div>
 <h3 id="data-types">Data Types</h3>
 <p>There are only two 'types': bytes (8-bit, 0–255) and words (16-bit, 0–65535). A byte can also be read as a <em>signed</em> number, –128 to 127, where a 1 in the leftmost bit means negative; the CPU stores both kinds the same way and it is up to you which you mean. Everything else—strings, arrays, structures—you build yourself from these primitives.</p>
 [[asm]]
@@ -90,7 +90,7 @@ my_counter: DS 1            ; One byte of RAM that we are allowed to change
     LD HL, my_byte       ; HL = the address of my_byte itself (e.g. $0300)
 [[/asm]]
 <p>In the first line, the brackets tell the CPU: "go to the address labelled <code>my_byte</code>, read the byte stored there, and put it in A." In the second line, there are no brackets, so the CPU simply loads the address number into HL — it never looks at what is stored there. This is the difference between reading a value from a postbox and writing down the postbox's location. Both are useful, but mixing them up is one of the most common beginner mistakes in Game Boy programming.</p>
-<p>Notice the last line of the first listing: <code>LD A, [HL+]</code>. It reads the byte and moves the pointer on in a single instruction, which is exactly what you need when walking through an array or a string. Its mirror image <code>LD [HL+], A</code> stores and advances, and <code>[HL-]</code> steps backwards. (The Z80 has no such instruction.)</p>
+<p>Notice the last line of the first listing: <code>LD A, [HL+]</code>. It reads the byte and moves the pointer on in a single instruction, which is exactly what you need when walking through an array or a string. Its mirror image <code>LD [HL+], A</code> stores and advances, and <code>[HL-]</code> steps backwards.</p>
 <p>To verify that your loads and stores are working, use the debug routines:</p>
 [[asm]]
     LD A, [my_byte]      ; Load the value
@@ -98,7 +98,7 @@ my_counter: DS 1            ; One byte of RAM that we are allowed to change
     LD A, 13
     RST $10              ; Newline
 [[/asm]]
-<p class="bold-text">Key Difference: There's no type checking, no automatic conversion, no protection. If you write a 16-bit value to an 8-bit location, you'll overwrite whatever's next in memory. You must track what's stored where. And if you try to store to an address in ROM, nothing happens at all—the write is silently ignored.</p>
+<p class="bold-text">Key Difference: There's no type checking, no automatic conversion, no protection. If you write a 16-bit value to an 8-bit location, you'll overwrite whatever's next in memory. You must track what's stored where. And if you try to store to an address in ROM, nothing happens at all on a plain 32 KB cartridge such as the ones in this guide—the write is silently ignored. (Larger cartridges use writes to ROM addresses to switch banks, so there the write does something, though not what you wanted.)</p>
 
 <h3 id="loading-storing-example">Try It Yourself</h3>
 <p>Copy the program below into VS Code, save it as <code>variables.asm</code> in the same folder as <code>debug_output.asm</code>, then assemble and run it. It loads and displays each of the data types defined above so you can see exactly what gets stored where. It uses the two remaining debug routines from the Debug Output Routines section:</p>
@@ -171,7 +171,7 @@ my_array:  1 2 3 4 5
     OR %00100000         ; Force bit 5 to 1 — setting 5 is now on
     LD [HL], A           ; Write it back — the other seven settings are unchanged
 [[/asm]]
-<p><strong>XOR</strong> — a bit in the result is 1 if the two inputs are <em>different</em>, and 0 if they are the same. This is why XOR A with itself always gives 0 — every bit matches, so every result bit is 0. It is the fastest way to clear A on the Game Boy (one byte long and the quickest instruction there is, versus two bytes for LD A, 0). XOR is also useful for toggling bits on and off:</p>
+<p><strong>XOR</strong> — a bit in the result is 1 if the two inputs are <em>different</em>, and 0 if they are the same. This is why XOR A with itself always gives 0 — every bit matches, so every result bit is 0. It is the usual way to clear A on the Game Boy (one byte long and as quick as an instruction gets, versus two bytes for LD A, 0). XOR is also useful for toggling bits on and off:</p>
 [[asm]]
     ; Toggle setting number 6 — if it was on, turn it off;
     ; if it was off, turn it on:
@@ -187,7 +187,7 @@ my_array:  1 2 3 4 5
     CPL                  ; Invert it — every pixel flips
     ; Now A holds the negative image of that row
 [[/asm]]
-<p>The Game Boy also has an instruction that the Z80 lacks: <strong>SWAP</strong>, which exchanges the top four bits of a register with the bottom four. <code>SWAP A</code> turns %11110000 into %00001111, and %00010011 into %00110001. It is handy for splitting a byte into two hexadecimal digits.</p>
+<p>The Game Boy also has a handy instruction, <strong>SWAP</strong>, which exchanges the top four bits of a register with the bottom four. <code>SWAP A</code> turns %11110000 into %00001111, and %00010011 into %00110001. It is handy for splitting a byte into two hexadecimal digits.</p>
 <h3 id="building-an-expression">Building an Expression</h3>
 <p>Let's compute result = (10 + 5) * 2 and verify the answer:</p>
 [[asm]]

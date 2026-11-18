@@ -1,0 +1,3 @@
+pyboy
+pillow
+numpy

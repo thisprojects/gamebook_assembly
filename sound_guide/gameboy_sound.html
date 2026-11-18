@@ -1,0 +1,2289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Beeps, Waves &amp; Noise: Game Boy Sound in Assembly</title>
+<style>
+/* The four shades of the original Game Boy LCD, plus two extra tints for readable text.
+   Every text/background pair below is checked for WCAG AA contrast (4.5:1) by tests/test_lib.py. */
+:root {
+    --lcd-lightest: #9bbc0f;
+    --lcd-light: #8bac0f;
+    --lcd-dark: #306230;
+    --lcd-darkest: #0f380f;
+    --bezel: #4b4d5e;
+
+    --bg: #9bbc0f;            /* page: the lightest LCD green */
+    --surface: #adcb2c;       /* panels: a slightly paler green */
+    --text: #0f380f;          /* body text: the darkest LCD green */
+    --text-dim: #214a18;
+    --heading: #0f380f;
+    --rule: #306230;
+    --link: #0b2e0b;
+
+    --code-bg: #0f380f;       /* code blocks: an inverted screen */
+    --code-border: #306230;
+    --code-text: #d3eb78;
+    --code-comment: #9bbc0f;
+    --code-keyword: #f2fba8;
+    --code-label: #c8e85a;
+    --code-string: #b5d842;
+    --code-number: #e4f58e;
+    --code-directive: #a9cf3a;
+    --inline-code-bg: #0f380f;
+    --inline-code-text: #d3eb78;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: 'Courier New', Courier, 'Lucida Console', monospace;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+}
+h1, h2, h3 { color: var(--heading); margin-top: 2.5rem; margin-bottom: 1rem; letter-spacing: 0.02em; }
+h1 { font-size: 2rem; border-bottom: 4px solid var(--rule); padding-bottom: 0.5rem; }
+h2 { font-size: 1.5rem; border-bottom: 2px dashed var(--rule); padding-bottom: 0.3rem; }
+h3 { font-size: 1.2rem; }
+h3::before { content: "\25B6\00a0"; }   /* a little menu cursor */
+p { margin-bottom: 1rem; }
+ul, ol { margin: 0 0 1rem 1.5rem; }
+li { margin-bottom: 0.3rem; }
+strong { font-weight: 700; }
+.title-block {
+    text-align: center;
+    padding: 2.5rem 1rem 1.5rem;
+    margin-bottom: 2rem;
+    background: var(--bezel);
+    border-radius: 14px 14px 56px 14px;
+    box-shadow: 0 4px 0 #2d2f3b;
+}
+.title-block .screen {
+    background: var(--lcd-lightest);
+    border: 6px solid #2d2f3b;
+    border-radius: 6px;
+    margin: 0 auto;
+    max-width: 640px;
+    padding: 1.5rem 1rem;
+    box-shadow: inset 0 0 0 3px var(--lcd-light);
+}
+.title-block h1 { border: none; font-size: 2.2rem; margin-top: 0; color: var(--lcd-darkest); }
+.title-block .subtitle { font-size: 1.1rem; color: var(--text-dim); margin-top: 0.5rem; }
+.title-block .assembler { font-size: 0.9rem; color: var(--text); margin-top: 1rem; font-weight: 700; }
+.title-block .bezel-text { color: #ffffff; font-size: 0.8rem; letter-spacing: 0.15em; margin-top: 1rem; }
+nav#toc {
+    background: var(--surface);
+    border: 3px solid var(--rule);
+    border-radius: 6px;
+    padding: 1.5rem 2rem;
+    margin-bottom: 3rem;
+}
+nav#toc h2 { margin-top: 0; }
+nav#toc ul { list-style: none; margin-left: 0; padding-left: 0; }
+nav#toc > ul > li { margin-bottom: 0.4rem; }
+nav#toc ul ul { padding-left: 1.5rem; }
+nav#toc ul ul li { margin-bottom: 0.2rem; }
+a { color: var(--link); text-decoration: underline; }
+a:hover, a:focus { background: var(--lcd-darkest); color: var(--lcd-lightest); }
+pre {
+    background: var(--code-bg);
+    border: 3px solid var(--code-border);
+    border-radius: 6px;
+    padding: 1rem 1.2rem;
+    overflow-x: auto;
+    margin-bottom: 1.2rem;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+code {
+    font-family: 'Courier New', Courier, 'Lucida Console', monospace;
+    background: var(--inline-code-bg);
+    color: var(--inline-code-text);
+    padding: 0 0.3em;
+    border-radius: 3px;
+}
+pre code { background: none; color: var(--code-text); padding: 0; }
+kbd { background: var(--lcd-darkest); color: var(--lcd-lightest); padding: 0 0.35em; border-radius: 3px; font-family: inherit; }
+.comment { color: var(--code-comment); }
+.keyword { color: var(--code-keyword); font-weight: 700; }
+.label { color: var(--code-label); text-decoration: underline; }
+.string { color: var(--code-string); }
+.number { color: var(--code-number); }
+.directive { color: var(--code-directive); font-weight: 700; }
+.bold-text { font-weight: 700; }
+.note {
+    background: var(--surface);
+    border-left: 8px solid var(--rule);
+    padding: 0.8rem 1rem;
+    margin-bottom: 1.2rem;
+}
+.back-to-top {
+    display: inline-block;
+    margin-top: 0.3rem;
+    margin-bottom: 1rem;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+}
+section { margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: 2px solid var(--rule); }
+section:last-child { border-bottom: none; }
+table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; }
+th { text-align: left; padding: 0.5rem; color: var(--heading); border-bottom: 3px solid var(--rule); }
+td { padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+tr.highlight-row { background: var(--surface); }
+figure.shot { margin: 1rem 0; text-align: center; }
+figure.shot img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid #888; }
+figure.shot figcaption { font-size: 0.85rem; margin-top: 0.3rem; }
+@media (max-width: 600px) { body { padding: 1rem 0.8rem; } .title-block h1 { font-size: 1.6rem; } }
+</style>
+</head>
+<body>
+
+<div class="title-block">
+<div class="screen">
+<h1>Beeps, Waves &amp; Noise</h1>
+<div class="subtitle">A Programmer's Guide to Game Boy Sound in Assembly</div>
+<div class="assembler">Assembler: RGBDS &middot; Emulator: any (mGBA, SameBoy, BGB)</div>
+</div>
+<div class="bezel-text">STEREO SOUND &middot; 4 CHANNELS &middot; SQUARE &middot; WAVE &middot; NOISE</div>
+</div>
+
+<nav id="toc">
+<h2>Contents</h2>
+<ul>
+<li><a href="#introduction">Introduction</a>
+<ul>
+<li><a href="#what-you-should-know">What you should know first</a>
+</li>
+<li><a href="#the-four-channels">The four channels</a>
+</li>
+<li><a href="#the-sound-memory-map">The sound memory map</a>
+</li>
+<li><a href="#how-to-build">Building and running the examples</a>
+</li>
+<li><a href="#the-program-template">The shape of every program</a>
+</li></ul>
+</li>
+<li><a href="#1-sound-on-the-game-boy">1. Sound on the Game Boy</a>
+<ul>
+<li><a href="#1-switching-on">Switching the sound on</a>
+</li>
+<li><a href="#1-starting-a-note">Starting a note</a>
+</li>
+<li><a href="#1-first-example">A complete example</a>
+</li></ul>
+</li>
+<li><a href="#2-pitch-and-notes">2. Pitch &amp; Notes</a>
+<ul>
+<li><a href="#2-worked-example">A note, worked by hand</a>
+</li>
+<li><a href="#2-the-note-table">The note table</a>
+</li>
+<li><a href="#2-example">A complete example</a>
+</li></ul>
+</li>
+<li><a href="#3-square-waves-and-duty">3. Square Waves &amp; Duty</a>
+<ul>
+<li><a href="#3-why-shape-matters">Why the shape changes the sound</a>
+</li>
+<li><a href="#3-example">A complete example</a>
+</li></ul>
+</li>
+<li><a href="#4-volume-envelopes">4. Volume Envelopes</a>
+<ul>
+<li><a href="#4-the-dac">The silent-channel rule</a>
+</li>
+<li><a href="#4-example">A complete example</a>
+</li></ul>
+</li>
+<li><a href="#5-length-and-sound-effects">5. Length &amp; Sound Effects</a>
+<ul>
+<li><a href="#5-recipes">Building an effect</a>
+</li>
+<li><a href="#5-example">A complete example</a>
+</li></ul>
+</li>
+<li><a href="#6-frequency-sweep">6. Frequency Sweep</a>
+<ul>
+<li><a href="#6-example">A complete example</a>
+</li></ul>
+</li>
+<li><a href="#7-the-wave-channel">7. The Wave Channel</a>
+<ul>
+<li><a href="#7-drawing-a-wave">Drawing a wave by hand</a>
+</li>
+<li><a href="#7-registers">The channel's registers</a>
+</li>
+<li><a href="#7-example">A complete example</a>
+</li></ul>
+</li>
+<li><a href="#8-the-noise-channel">8. The Noise Channel</a>
+<ul>
+<li><a href="#8-example">A complete example</a>
+</li></ul>
+</li>
+<li><a href="#9-keeping-time">9. Keeping Time</a>
+<ul>
+<li><a href="#9-tempo">Tempo in frames</a>
+</li>
+<li><a href="#9-example">A complete example</a>
+</li></ul>
+</li>
+<li><a href="#10-a-music-engine">10. A Music Engine</a>
+<ul>
+<li><a href="#10-the-data">The shape of a song</a>
+</li>
+<li><a href="#10-how-it-works">How it works</a>
+</li>
+<li><a href="#10-where-to-tick">Where to call it</a>
+</li>
+<li><a href="#10-sfx">Sound effects over music</a>
+</li>
+<li><a href="#10-example">A complete example</a>
+</li></ul>
+</li>
+<li><a href="#11-input-and-a-playable-instrument">11. Input &amp; a Playable Instrument</a>
+<ul>
+<li><a href="#11-example">A complete example</a>
+</li>
+<li><a href="#11-where-next">Where to go next</a>
+</li></ul>
+</li>
+<li><a href="#conclusion">Conclusion</a>
+<ul>
+<li><a href="#what-was-verified">What has and has not been verified</a>
+</li></ul>
+</li>
+<li><a href="#appendix-a-library-reference">Appendix A: Library Reference</a>
+<ul>
+<li><a href="#a-sound">sound.asm: the basics (Chapters 1, 2 and 7)</a>
+</li>
+<li><a href="#a-notes">notes.inc: names (Chapter 2, 10)</a>
+</li>
+<li><a href="#a-frame">frame.asm: the frame clock (Chapter 9)</a>
+</li>
+<li><a href="#a-music">music.asm: the music engine (Chapter 10)</a>
+</li>
+<li><a href="#a-screen">screen.asm, gfx.asm, text.asm: the little display</a>
+</li>
+<li><a href="#a-joypad">joypad.asm: input (Chapter 11)</a>
+</li></ul>
+</li>
+<li><a href="#appendix-b-registers">Appendix B: Sound Registers</a>
+</li>
+<li><a href="#appendix-c-notes">Appendix C: Note Table</a>
+</li></ul>
+</nav>
+
+<section>
+<h1 id="introduction">Introduction</h1>
+
+<p>The original Game Boy makes sound without ever handling a sound. There is no sample buffer, no mixer and no sound card. The processor is far too slow to work out a waveform one sample at a time: at CD quality that would be 44,100 numbers a second, and nothing would be left over for the game. Instead the console has four small synthesiser circuits, called <strong>channels</strong>, built into the chip. Once the program has said what kind of wave, how high, how loud and for how long, a channel makes its sound entirely on its own, and goes on making it while the processor does something else.</p>
+
+<p>That changes how you think about sound. On most machines you produce the signal. On the Game Boy you <em>describe</em> it: &ldquo;this note, that shape, fade out over a second&rdquo;, and the hardware plays it. What is left for the program is timing: starting the right note at the right moment, sixty times a second. This book teaches sound the way the machine wants it taught: ten topics, each starting with the job you want done and showing the Game Boy's own way of doing it, and a last chapter that adds the buttons and turns the console into an instrument. Graphics have their own companion book, <em>Pixels, Tiles &amp; Sprites</em>, and the link cable and cartridge hardware are not covered.</p>
+
+<h2 id="what-you-should-know">What you should know first</h2>
+<p>This book assumes you can read basic Game Boy (SM83) assembly: registers <code>A</code>, <code>B</code>, <code>C</code>, <code>D</code>, <code>E</code>, <code>H</code>, <code>L</code>, the 16-bit pairs such as <code>HL</code>, <code>LD</code>, <code>ADD</code>, <code>CP</code>, the flags, <code>JR</code> and <code>CALL</code>. If you can follow a loop that counts from 1 to 10, you are ready. Everything to do with sound is explained from scratch, and you need no music theory beyond knowing that a higher note is a faster vibration.</p>
+
+<h2 id="the-four-channels">The four channels</h2>
+<p>Every sound the Game Boy makes is the sum of four channels, each a different kind of instrument:</p>
+<table>
+<tr><th>Channel</th><th>Kind</th><th>What it is good for</th></tr>
+<tr><td>1</td><td>Square wave, with a frequency sweep</td><td>Melodies, and effects that slide: jumps, lasers</td></tr>
+<tr><td>2</td><td>Square wave</td><td>Harmony, arpeggios, short blips</td></tr>
+<tr><td>3</td><td>A wave you draw yourself: 32 samples</td><td>Bass, and unusual tones</td></tr>
+<tr><td>4</td><td>Noise</td><td>Drums, explosions, wind</td></tr>
+</table>
+<p>A <em>square wave</em> is the simplest sound there is: the speaker is pushed out, held, pulled back, held, and so on, so the signal is either high or low and nothing in between. It is the buzzy sound of the Game Boy that everyone knows. Each channel has its own handful of registers, and each can be sent to the left speaker, the right, or both.</p>
+
+<h2 id="the-sound-memory-map">The sound memory map</h2>
+<p>As with the screen, all of it is controlled by writing to memory addresses. The sound hardware lives from <code>$FF10</code> to <code>$FF3F</code>:</p>
+<table>
+<tr><th>Address</th><th>What it holds</th></tr>
+<tr><td><code>$FF10-$FF14</code></td><td>Channel 1: sweep, duty and length, envelope, pitch and start</td></tr>
+<tr><td><code>$FF16-$FF19</code></td><td>Channel 2: the same, without a sweep</td></tr>
+<tr><td><code>$FF1A-$FF1E</code></td><td>Channel 3: on/off, length, volume, pitch and start</td></tr>
+<tr><td><code>$FF20-$FF23</code></td><td>Channel 4: length, envelope, noise setting and start</td></tr>
+<tr><td><code>$FF24-$FF26</code></td><td>Master controls: volume, which channel goes to which speaker, and the on/off switch</td></tr>
+<tr><td><code>$FF30-$FF3F</code></td><td>Wave RAM: the 32 samples that channel 3 plays</td></tr>
+</table>
+<p>The registers are named after their address: <code>rNR11</code> is the &ldquo;NR&rdquo; (sound) register of channel 1, number 1. Appendix B lists them all. Many sound registers are partly or entirely <em>write-only</em>: reading one back gives you only some of what you wrote, and the rest as ones. If you need to know a note's pitch later, keep your own copy in RAM.</p>
+
+<h2 id="how-to-build">Building and running the examples</h2>
+<p>The programs are assembled with RGBDS, the standard Game Boy toolchain. Every program in this book is a complete file in the <code>examples/</code> folder, and every routine is in <code>lib/</code>. To build one:</p>
+<pre><code>rgbasm -I lib/ -o beep_demo.o examples/beep_demo.asm
+rgblink -o beep_demo.gb beep_demo.o
+rgbfix -v -p 0xFF beep_demo.gb</code></pre>
+<p>or simply run <code>make beep_demo.gb</code> in the <code>examples</code> folder, and <code>make run-beep_demo</code> to open it in an emulator. Turn the volume up. The listings you read here are not retyped: the book is built from the same files that an automated test suite assembles and runs on an emulated Game Boy, recording the sound it makes and checking its pitch, its shape and its timing against calculations of what it should be.</p>
+
+<h2 id="the-program-template">The shape of every program</h2>
+<p>Every example begins with the same few lines, kept in <code>boot.inc</code>:</p>
+<pre><code><span class="comment">; boot.inc - the first lines of every program in this book.</span>
+<span class="comment">; Puts the cartridge header space at $100 and starts your code at $150</span>
+<span class="comment">; with the stack at the top of the first block of work RAM.</span>
+
+<span class="directive">INCLUDE</span> <span class="string">"hardware.inc"</span>
+
+<span class="directive">SECTION</span> <span class="string">"Header"</span>, ROM0[<span class="number">$100</span>]
+    <span class="keyword">NOP</span>
+    <span class="keyword">JP</span> Start
+    <span class="directive">DS</span> <span class="number">$150</span> - @, <span class="number">0</span>           <span class="comment">; rgbfix fills in the header here</span>
+
+<span class="directive">SECTION</span> <span class="string">"Main"</span>, ROM0[<span class="number">$150</span>]
+<span class="label">Start</span>:
+    <span class="keyword">LD</span> SP, <span class="number">$CFFF</span>             <span class="comment">; The stack grows down from the end of WRAM bank 0</span></code></pre>
+<p>The Game Boy starts executing at <code>$100</code>, where there are only four bytes of room before the cartridge header, so the program jumps over it. <code>rgbfix</code> fills the header in afterwards. Code then starts at <code>$150</code>, with the stack placed at the top of the first block of work RAM. <code>hardware.inc</code> gives names to the hardware registers (<code>rNR12</code>, <code>rNR52</code> and so on) and is used with <code>LDH</code>, the short instruction for the <code>$FF00</code> page.</p>
+<p>The routines are plain files you <code>INCLUDE</code> at the end of a program: <code>sound.asm</code> for the basics, <code>frame.asm</code> for keeping time, <code>music.asm</code> for songs, and so on. Appendix A lists them all. Sound is not something you can look at, so each example also prints a line or two of text saying what it is playing; the small <code>screen.asm</code> and <code>text.asm</code> routines do that, and you can ignore them until you want to copy them. Each chapter ends with a few exercises that use only what has been covered so far.</p>
+</section>
+
+<section>
+<h1 id="1-sound-on-the-game-boy">1. Sound on the Game Boy</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="1-in-high-level-languages">In High-Level Languages</h2>
+<p>You play a sound by asking for it by name. Somewhere underneath, a library has decoded a file into a long list of <em>samples</em>, numbers describing the position of the speaker at each instant, and hands them to the sound card at a fixed rate:</p>
+<pre><code>sound = load("beep.wav")        # thousands of samples, decoded for you
+sound.play()                    # the library feeds them to the sound card
+
+# what the sound card is really doing, 44100 times a second:
+for each tick:
+    speaker = sum of the next sample of every sound that is playing</code></pre>
+<p>The program owns every sample. To make a new sound, it computes the list; to change a sound, it recomputes it. That is simple to reason about, but it is expensive: one second of mono sound at 44,100 samples is 44,100 numbers that must be found in time, every second. The Game Boy was designed to avoid exactly that cost.</p>
+
+<h2 id="1-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>The Game Boy has no sample list. It has four circuits that each generate their own wave, and a few registers to tell them what to do. A program makes a sound in three steps: switch the sound hardware on, set up a channel, and start it. After that the channel plays by itself.</p>
+
+<h3 id="1-switching-on">Switching the sound on</h3>
+<p>There are three master registers, and they are the first things any program sets:</p>
+<table>
+<tr><th>Register</th><th>Address</th><th>Meaning</th></tr>
+<tr><td><code>rNR52</code></td><td><code>$FF26</code></td><td>Bit 7: the whole sound chip on (1) or off (0). Bits 3&ndash;0, when read: which of channels 4&ndash;1 are playing right now</td></tr>
+<tr><td><code>rNR50</code></td><td><code>$FF24</code></td><td>Master volume, 0&ndash;7, for the left speaker (bits 6&ndash;4) and the right speaker (bits 2&ndash;0)</td></tr>
+<tr><td><code>rNR51</code></td><td><code>$FF25</code></td><td>Panning: one bit per channel per speaker. Bits 7&ndash;4 send channels 4&ndash;1 to the left, bits 3&ndash;0 send channels 4&ndash;1 to the right</td></tr>
+</table>
+<p>The value <code>$77</code> in <code>rNR50</code> is full volume on both sides; <code>$FF</code> in <code>rNR51</code> sends every channel to both. A single channel to both speakers is a pair of bits: <code>$11</code> is channel 1 only, <code>$22</code> channel 2 only, <code>$44</code> channel 3, <code>$88</code> channel 4. (The test suite uses exactly this to listen to one channel at a time.) <code>sound_init</code> sets all three, and starts with a little ritual:</p>
+<pre><code><span class="label">sound_init</span>:
+    <span class="keyword">XOR</span> A
+    <span class="keyword">LDH</span> [rNR52], A          <span class="comment">; Switch the sound chip off: this clears every sound register ...</span>
+    <span class="keyword">LD</span> A, <span class="number">$80</span>
+    <span class="keyword">LDH</span> [rNR52], A          <span class="comment">; ... and on again.  Do this before any other sound register: while it is off they ignore writes</span>
+    <span class="keyword">LD</span> A, <span class="number">$77</span>
+    <span class="keyword">LDH</span> [rNR50], A          <span class="comment">; Full volume, left and right</span>
+    <span class="keyword">LD</span> A, <span class="number">$FF</span>
+    <span class="keyword">LDH</span> [rNR51], A          <span class="comment">; Send every channel to both speakers</span>
+    <span class="keyword">RET</span></code></pre>
+<p>Writing <code>0</code> and then <code>$80</code> to <code>rNR52</code> switches the chip off and on again. While it is off, every other sound register ignores writes, and turning it off clears them all. So the pair is a reset: whatever state the console's start-up left the sound chip in (it has just played its own start-up chime), the program begins from silence with every register at zero. Many programs write only <code>$80</code> and rely on the start-up state; this one resets because it costs two instructions and makes the result independent of the machine. It was needed in practice: in the emulator used to test this book, a channel started without the reset stayed silent. Do it before touching anything else.</p>
+
+<h3 id="1-starting-a-note">Starting a note</h3>
+<p>Channel 1 has five registers. Four of them describe the note:</p>
+<table>
+<tr><th>Register</th><th>Address</th><th>Meaning</th></tr>
+<tr><td><code>rNR11</code></td><td><code>$FF11</code></td><td>Bits 7&ndash;6: the shape of the square wave (the <em>duty</em>, Chapter 3). Bits 5&ndash;0: length (Chapter 5)</td></tr>
+<tr><td><code>rNR12</code></td><td><code>$FF12</code></td><td>The volume envelope: how loud, and whether it fades (Chapter 4)</td></tr>
+<tr><td><code>rNR13</code></td><td><code>$FF13</code></td><td>Pitch, low 8 bits</td></tr>
+<tr><td><code>rNR14</code></td><td><code>$FF14</code></td><td>Bit 7: <strong>start</strong> the sound. Bit 6: stop when the length runs out. Bits 2&ndash;0: pitch, high 3 bits</td></tr>
+</table>
+<p>The important one is bit 7 of <code>rNR14</code>. A channel does not start when you set its registers; it starts when you write a 1 to the <em>start</em> bit (the hardware calls it the <em>trigger</em>). Everything you want must therefore be written first, and the write to <code>NR14</code> goes last. Writing it again starts the note again from the beginning, which is how a program plays one note after another.</p>
+
+<h3 id="1-first-example">A complete example</h3>
+<p>This program switches the sound on, prints a line, and plays channel 1 at about 2048 Hz, a high, thin beep, with a volume that starts at the maximum and fades out over about a second. When it has started the note it has nothing left to do:</p>
+<pre><code><span class="comment">; beep_demo.asm - Chapter 1: switch the sound on and play one note</span>
+<span class="comment">; Channel 1 plays a square wave at 2048 Hz for about a second, fading out.</span>
+<span class="directive">INCLUDE</span> <span class="string">"boot.inc"</span>
+
+    <span class="keyword">CALL</span> screen_init
+    <span class="keyword">LD</span> B, <span class="number">2</span>
+    <span class="keyword">LD</span> C, <span class="number">2</span>
+    <span class="keyword">LD</span> HL, Title
+    <span class="keyword">CALL</span> show_text
+
+    <span class="keyword">CALL</span> sound_init
+
+    <span class="keyword">LD</span> A, DUTY_50
+    <span class="keyword">LDH</span> [rNR11], A              <span class="comment">; 50% square wave</span>
+    <span class="keyword">LD</span> A, <span class="number">$F3</span>
+    <span class="keyword">LDH</span> [rNR12], A              <span class="comment">; start at full volume, fade out slowly</span>
+    <span class="keyword">LD</span> A, <span class="number">$C0</span>
+    <span class="keyword">LDH</span> [rNR13], A              <span class="comment">; pitch, low 8 bits  ($7C0 = 1984)</span>
+    <span class="keyword">LD</span> A, NRX4_START | <span class="number">$07</span>
+    <span class="keyword">LDH</span> [rNR14], A              <span class="comment">; start the sound; the 3 low bits are the top of the pitch</span>
+
+<span class="label">Done</span>:
+    <span class="keyword">HALT</span>                        <span class="comment">; the sound plays by itself: nothing left to do</span>
+    <span class="keyword">NOP</span>
+    <span class="keyword">JR</span> Done
+
+<span class="label">Title</span>: <span class="directive">DB</span> <span class="string">"Channel 1: 2048 Hz"</span>, <span class="number">0</span>
+
+<span class="directive">INCLUDE</span> <span class="string">"gfx.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"text.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"screen.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"sound.asm"</span></code></pre>
+<p><strong>What you hear:</strong> a single beep that fades away in about a second, and then silence. The program stopped at <code>Done</code> long before the sound did: <code>HALT</code> puts the processor to sleep, and the sound chip carries on regardless. The test suite records the sound the emulated chip produces and measures it: the pitch measures 2046 Hz (the value <code>$7C0</code> gives exactly 131072 / 64 = 2048 Hz; the measurement is good to a few hertz), the wave is high exactly half the time, the loudness falls, and a second later the output is silent again.</p>
+<p>Two of the values are worth decoding now, and Chapters 2 and 4 return to them. <code>$F3</code> in <code>rNR12</code> means &ldquo;start at volume 15, and fade&rdquo;; <code>$7C0</code> is the pitch, split between <code>rNR13</code> (<code>$C0</code>) and the low three bits of <code>rNR14</code> (<code>$07</code>), exactly as the program writes it.</p>
+<p class="bold-text">Key fact: a channel plays by itself. Set it up, write the start bit last, and the program is free; sound is the one thing the Game Boy does that needs no help from the processor once begun.</p>
+<h3 id="1-exercises">Try it yourself</h3>
+<ol>
+<li>Change <code>$C0</code> to <code>$00</code>. Is the beep higher or lower? Change the <code>$07</code> to <code>$03</code>. Why does that one change make a much larger difference?</li>
+<li>Change <code>rNR50</code> in <code>sound_init</code> to <code>$11</code>. What changes, and why is it not silent?</li>
+<li>Change <code>rNR51</code> to <code>$10</code> so that channel 1 only reaches the left speaker. With headphones, which ear plays it?</li>
+</ol>
+</section>
+
+<section>
+<h1 id="2-pitch-and-notes">2. Pitch &amp; Notes</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="2-in-high-level-languages">In High-Level Languages</h2>
+<p>You name a note and the library finds the frequency, using floating point and a power of two. A semitone is the twelfth root of two:</p>
+<pre><code>frequency = 440 * 2 ** ((note - 69) / 12)       # MIDI numbering: A4 = 69
+osc.frequency = frequency                       # any real number will do</code></pre>
+<p>Any real number will do, and the oscillator turns it into a wave without you ever seeing the arithmetic. That is exactly what a Game Boy has no room for: no floating point, no powers, not even a multiply instruction.</p>
+<h2 id="2-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>A square channel does not take a frequency. It takes an 11-bit number, <em>x</em>, from 0 to 2047, and counts: the larger the number, the shorter the wait between flips of the wave, and the higher the note. The frequency you hear is</p>
+<pre><code>frequency = 131072 / (2048 - x)  Hz</code></pre>
+<p>so the lowest possible note (<em>x</em> = 0) is 64 Hz and the highest is more than 100,000 Hz, far above anything you can hear. Everything musical happens in the top fraction of the range, where <em>x</em> is close to 2047.</p>
+
+<h3 id="2-worked-example">A note, worked by hand</h3>
+<p>The note A above middle C is 440 Hz. Rearranging the formula for <em>x</em>:</p>
+<pre><code>x = 2048 - 131072 / 440
+  = 2048 - 297.9
+  = 1750.1   which rounds to 1750 = $6D6</code></pre>
+<p>The 11 bits are written in two pieces: the low 8 bits (<code>$D6</code>) go in <code>rNR13</code>, and the top 3 bits (<code>$6</code> is <code>%110</code>) go in the low three bits of <code>rNR14</code>, with the start bit set: <code>$86</code>. The note then sounds at 131072 / (2048 &minus; 1750) = 439.8 Hz, about two-thirds of a cent flat of 440.</p>
+
+<h3 id="2-the-note-table">The note table</h3>
+<p>A program needs hundreds of different notes and cannot do that division on the machine, so the work is done once, in advance. <code>NoteTable</code> in <code>sound.asm</code> holds the 11-bit value for 72 notes, six octaves from C2 (65 Hz) to B7 (3951 Hz), two bytes each. The notes are numbered from 0, and every semitone adds one, so the number of a note is a position in the table:</p>
+<pre><code><span class="comment">; C2 is note 0, and every semitone adds one: C3 = 12, C4 = 24, A4 = 33 (440 Hz).</span>
+<span class="comment">; A sharp is written As, so As3 is the note a semitone above A3.</span>
+
+<span class="directive">DEF</span> C2 EQU <span class="number">0</span></code></pre>
+<p><code>notes.inc</code> gives every note a name: <code>C2</code>, <code>Cs2</code> for C sharp, <code>D2</code> and so on up to <code>B7</code>, so a program can say <code>LD A, A4</code>. Finding a note in the table is a doubling (two bytes each) and an add:</p>
+<pre><code><span class="comment">; --- DE = the pitch value of note A ---</span>
+<span class="label">note_freq</span>:
+    <span class="keyword">LD</span> L, A
+    <span class="keyword">LD</span> H, <span class="number">0</span>
+    <span class="keyword">ADD</span> HL, HL              <span class="comment">; two bytes per note</span>
+    <span class="keyword">LD</span> DE, NoteTable
+    <span class="keyword">ADD</span> HL, DE
+    <span class="keyword">LD</span> A, [HL+]
+    <span class="keyword">LD</span> E, A
+    <span class="keyword">LD</span> D, [HL]
+    <span class="keyword">RET</span></code></pre>
+<p>The values in the table are the formula above, rounded to a whole number, for a tuning of A4 = 440 Hz. Rounding costs something, and it costs most at the top. In the lowest octaves one step of <em>x</em> is a tiny fraction of a note; by B7 a step is about half a semitone, so the highest notes can be up to a fifth of a semitone out of tune. The test suite checks every entry against the formula: in the lowest four octaves each is within 6 cents of true, in the sixth within 11 and in the top octave within 20, where a cent is a hundredth of a semitone.</p>
+<p>Starting a note on channel 1, 2 or 3 is then three lines, because the three channels have the same layout, just at different addresses: the low byte to <code>NRx3</code> and the high bits, with the start flag, to <code>NRx4</code>:</p>
+<pre><code><span class="comment">; --- Start a note: low 8 bits to NRx3, then the high 3 bits with the start flag to NRx4 ---</span>
+<span class="label">play_ch1</span>:
+    <span class="keyword">LD</span> A, E
+    <span class="keyword">LDH</span> [rNR13], A
+    <span class="keyword">LD</span> A, D
+    <span class="keyword">OR</span> NRX4_START
+    <span class="keyword">LDH</span> [rNR14], A
+    <span class="keyword">RET</span>
+
+<span class="label">play_ch2</span>:
+    <span class="keyword">LD</span> A, E
+    <span class="keyword">LDH</span> [rNR23], A
+    <span class="keyword">LD</span> A, D
+    <span class="keyword">OR</span> NRX4_START
+    <span class="keyword">LDH</span> [rNR24], A
+    <span class="keyword">RET</span>
+
+<span class="label">play_ch3</span>:
+    <span class="keyword">LD</span> A, E
+    <span class="keyword">LDH</span> [rNR33], A
+    <span class="keyword">LD</span> A, D
+    <span class="keyword">OR</span> NRX4_START
+    <span class="keyword">LDH</span> [rNR34], A
+    <span class="keyword">RET</span></code></pre>
+
+<h3 id="2-example">A complete example</h3>
+<p>This program plays the C major scale, one note every 24 frames, and prints each note's name. It uses <code>print_note</code>, which turns a note number into a name by finding the letter in a table and counting octaves with repeated subtraction of 12:</p>
+<pre><code><span class="comment">; scale_demo.asm - Chapter 2: notes from a table</span>
+<span class="comment">; Plays the C major scale on channel 1, one note every 24 frames, and prints the</span>
+<span class="comment">; name of each note.  The pitch values come from NoteTable in sound.asm.</span>
+<span class="directive">SECTION</span> <span class="string">"ScaleVars"</span>, WRAM0
+<span class="label">wIndex</span>: <span class="directive">DS</span> <span class="number">1</span>                    <span class="comment">; which note of the scale is next</span>
+
+<span class="directive">INCLUDE</span> <span class="string">"boot.inc"</span>
+<span class="directive">INCLUDE</span> <span class="string">"notes.inc"</span>
+
+    <span class="keyword">CALL</span> screen_init
+    <span class="keyword">CALL</span> sound_init
+    <span class="keyword">LD</span> B, <span class="number">2</span>
+    <span class="keyword">LD</span> C, <span class="number">2</span>
+    <span class="keyword">LD</span> HL, Title
+    <span class="keyword">CALL</span> show_text
+
+    <span class="keyword">LD</span> A, DUTY_50
+    <span class="keyword">LDH</span> [rNR11], A
+    <span class="keyword">XOR</span> A
+    <span class="keyword">LD</span> [wIndex], A
+    <span class="keyword">CALL</span> frame_init
+    <span class="keyword">EI</span>
+
+<span class="label">NextNote</span>:
+    <span class="keyword">LD</span> A, [wIndex]
+    <span class="keyword">LD</span> E, A
+    <span class="keyword">LD</span> D, <span class="number">0</span>
+    <span class="keyword">LD</span> HL, Scale
+    <span class="keyword">ADD</span> HL, DE
+    <span class="keyword">LD</span> A, [HL]                  <span class="comment">; A = the note number</span>
+    <span class="keyword">PUSH</span> AF
+    <span class="keyword">LD</span> B, <span class="number">2</span>
+    <span class="keyword">LD</span> C, <span class="number">5</span>
+    <span class="keyword">CALL</span> print_at
+    <span class="keyword">POP</span> AF
+    <span class="keyword">PUSH</span> AF
+    <span class="keyword">CALL</span> print_note             <span class="comment">; show its name</span>
+    <span class="keyword">POP</span> AF
+    <span class="keyword">CALL</span> note_freq              <span class="comment">; DE = its pitch value</span>
+    <span class="keyword">LD</span> A, <span class="number">$A2</span>
+    <span class="keyword">LDH</span> [rNR12], A              <span class="comment">; volume 10, fading by one step every 2/64 s</span>
+    <span class="keyword">CALL</span> play_ch1
+
+    <span class="keyword">LD</span> B, <span class="number">24</span>
+<span class="label">.wait</span>:
+    <span class="keyword">CALL</span> wait_frame
+    <span class="keyword">DEC</span> B
+    <span class="keyword">JR</span> NZ, .wait
+
+    <span class="keyword">LD</span> A, [wIndex]
+    <span class="keyword">INC</span> A
+    <span class="keyword">CP</span> <span class="number">8</span>
+    <span class="keyword">JR</span> NZ, .store
+    <span class="keyword">XOR</span> A                       <span class="comment">; after the eighth note, start the scale again</span>
+<span class="label">.store</span>:
+    <span class="keyword">LD</span> [wIndex], A
+    <span class="keyword">JR</span> NextNote
+
+<span class="label">Title</span>: <span class="directive">DB</span> <span class="string">"C major scale"</span>, <span class="number">0</span>
+<span class="label">Scale</span>: <span class="directive">DB</span> C4, D4, E4, F4, G4, A4, B4, C5
+
+<span class="directive">INCLUDE</span> <span class="string">"gfx.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"text.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"screen.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"frame.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"sound.asm"</span></code></pre>
+<p><strong>What you hear:</strong> eight notes going up, the usual do-re-mi, ending on the C an octave above where it started. The tests measure each one from the recorded sound and compare it to <code>440 &times; 2<sup>(n&minus;33)/12</sup></code>; all are within 15 cents. Look at what the loop does not do: it never counts a wave or a sample. It looks up a number, writes it, and waits.</p>
+<p class="bold-text">Key fact: pitch is an 11-bit number, <code>131072 / (2048 &minus; x)</code> Hz, written in two pieces. A table in ROM replaces the arithmetic, and the start bit in <code>NRx4</code> goes last.</p>
+<h3 id="2-exercises">Try it yourself</h3>
+<ol>
+<li>Change <code>Scale</code> to play the minor scale: <code>C4, D4, Ds4, F4, G4, Gs4, As4, C5</code>. Which three notes did you lower?</li>
+<li>Make the scale play down as well as up, by changing the table.</li>
+<li>Work out <code>x</code> for 261.6 Hz (middle C) by hand, as in the example above, and compare it with the C4 entry of <code>NoteTable</code>. How close are they?</li>
+</ol>
+</section>
+<section>
+<h1 id="3-square-waves-and-duty">3. Square Waves &amp; Duty</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="3-in-high-level-languages">In High-Level Languages</h2>
+<p>An oscillator comes with a choice of shapes: sine, triangle, sawtooth, square. The shape is the <em>timbre</em>, what makes a flute sound unlike a violin playing the same note. A software synthesiser evaluates the chosen formula for every sample:</p>
+<pre><code>osc = Oscillator(type = "square", frequency = 440)
+osc.pulse_width = 0.25                  # some libraries let you change the shape of the square</code></pre>
+<p>Changing the shape is a change of one number, and the cost is a different calculation for each of the thousands of samples per second.</p>
+<h2 id="3-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>Channels 1 and 2 can make only one kind of wave, the square wave, but they can change how long it stays high. The fraction of each cycle that the wave is high is its <strong>duty cycle</strong>, and there are four choices, set by the top two bits of <code>rNR11</code> (channel 1) or <code>rNR21</code> (channel 2):</p>
+<table>
+<tr><th>Bits 7&ndash;6</th><th>Name in <code>hardware.inc</code></th><th>High for</th><th>Sounds like</th></tr>
+<tr><td><code>%00</code></td><td><code>DUTY_12</code></td><td>1/8 of the cycle</td><td>Thin, reedy, a little nasal</td></tr>
+<tr><td><code>%01</code></td><td><code>DUTY_25</code></td><td>2/8</td><td>Full but bright: the classic lead</td></tr>
+<tr><td><code>%10</code></td><td><code>DUTY_50</code></td><td>4/8</td><td>Hollow, like a clarinet</td></tr>
+<tr><td><code>%11</code></td><td><code>DUTY_75</code></td><td>6/8</td><td>Sounds the same as 25%</td></tr>
+</table>
+<p>The last row is not a mistake. Turning a wave upside down does not change how it sounds, and a wave that is high for three quarters of the time is a wave that is low for a quarter of the time, turned upside down. So there are really three timbres to choose from, not four.</p>
+
+<h3 id="3-why-shape-matters">Why the shape changes the sound</h3>
+<p>The note's <em>pitch</em> depends only on how often the wave repeats. Its <em>character</em> depends on the shape within each repeat, and a thin pulse and a fat one repeat equally often. Here is the same note, A4, drawn from the actual output of channel 1 playing each duty in turn:</p>
+<figure class="shot"><img src="data:image/png;base64,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" width="640" height="366" alt="The sound of channel 1 at each duty cycle, measured from the emulator: three cycles of A4 (440 Hz). The pitch is the same; the shape inside the cycle is not."><figcaption>The sound of channel 1 at each duty cycle, measured from the emulator: three cycles of A4 (440 Hz). The pitch is the same; the shape inside the cycle is not.</figcaption></figure>
+<p>A 50% wave contains only the odd harmonics of its pitch (the extra tones at three, five, seven times the frequency, and so on), which is what gives it a hollow sound. A thin pulse contains many more of them, relatively stronger, and sounds brighter and more nasal. The duty cycle is the one real instrument change a square channel has, and switching it from one note to the next gives a melody a little variety.</p>
+<p>Channel 2 has the same two bytes at different addresses, <code>rNR21</code> (<code>$FF16</code>) and <code>rNR22</code> (<code>$FF17</code>), then <code>rNR23</code> and <code>rNR24</code>. The registers are in the same order as channel 1's, but with no sweep register in front, which is why channel 2 starts at <code>$FF16</code> rather than <code>$FF15</code>: that address is unused.</p>
+
+<h3 id="3-example">A complete example</h3>
+<p>This program plays A4 four times on channel 1, once with each duty, and prints the setting. It changes only <code>rNR11</code> between the notes; the pitch and envelope are written each time.</p>
+<pre><code><span class="comment">; duty_demo.asm - Chapter 3: the duty cycle of a square wave</span>
+<span class="comment">; The same note (A4, 440 Hz) is played four times on channel 1, once with each duty</span>
+<span class="comment">; cycle.  The pitch never changes: only the character of the sound does.</span>
+<span class="directive">SECTION</span> <span class="string">"DutyVars"</span>, WRAM0
+<span class="label">wIndex</span>: <span class="directive">DS</span> <span class="number">1</span>
+
+<span class="directive">INCLUDE</span> <span class="string">"boot.inc"</span>
+<span class="directive">INCLUDE</span> <span class="string">"notes.inc"</span>
+
+    <span class="keyword">CALL</span> screen_init
+    <span class="keyword">CALL</span> sound_init
+    <span class="keyword">LD</span> B, <span class="number">2</span>
+    <span class="keyword">LD</span> C, <span class="number">2</span>
+    <span class="keyword">LD</span> HL, Title
+    <span class="keyword">CALL</span> show_text
+    <span class="keyword">XOR</span> A
+    <span class="keyword">LD</span> [wIndex], A
+    <span class="keyword">CALL</span> frame_init
+    <span class="keyword">EI</span>
+
+<span class="label">NextDuty</span>:
+    <span class="keyword">LD</span> A, [wIndex]
+    <span class="keyword">LD</span> E, A
+    <span class="keyword">LD</span> D, <span class="number">0</span>
+    <span class="keyword">LD</span> HL, Duties
+    <span class="keyword">ADD</span> HL, DE
+    <span class="keyword">LD</span> A, [HL]
+    <span class="keyword">LDH</span> [rNR11], A              <span class="comment">; the duty cycle is the top two bits of NR11</span>
+    <span class="keyword">LD</span> A, <span class="number">$C0</span>
+    <span class="keyword">LDH</span> [rNR12], A              <span class="comment">; volume 12, steady</span>
+    <span class="keyword">LD</span> A, A4
+    <span class="keyword">CALL</span> note_freq
+    <span class="keyword">CALL</span> play_ch1
+
+    <span class="keyword">LD</span> A, [wIndex]              <span class="comment">; the label: six characters each, so the address is label + 6 * index</span>
+    <span class="keyword">LD</span> L, A
+    <span class="keyword">LD</span> H, <span class="number">0</span>
+    <span class="keyword">LD</span> D, H
+    <span class="keyword">LD</span> E, L
+    <span class="keyword">ADD</span> HL, HL                  <span class="comment">; 2 * index</span>
+    <span class="keyword">ADD</span> HL, DE                  <span class="comment">; 3 * index</span>
+    <span class="keyword">ADD</span> HL, HL                  <span class="comment">; 6 * index</span>
+    <span class="keyword">LD</span> DE, Labels
+    <span class="keyword">ADD</span> HL, DE
+    <span class="keyword">LD</span> B, <span class="number">2</span>
+    <span class="keyword">LD</span> C, <span class="number">5</span>
+    <span class="keyword">PUSH</span> HL
+    <span class="keyword">CALL</span> print_at
+    <span class="keyword">POP</span> HL
+    <span class="keyword">CALL</span> print_string
+
+    <span class="keyword">LD</span> B, <span class="number">45</span>
+<span class="label">.wait</span>:
+    <span class="keyword">CALL</span> wait_frame
+    <span class="keyword">DEC</span> B
+    <span class="keyword">JR</span> NZ, .wait
+
+    <span class="keyword">LD</span> A, [wIndex]
+    <span class="keyword">INC</span> A
+    <span class="keyword">AND</span> <span class="number">3</span>                       <span class="comment">; 0, 1, 2, 3, 0, 1, ...</span>
+    <span class="keyword">LD</span> [wIndex], A
+    <span class="keyword">JR</span> NextDuty
+
+<span class="label">Title</span>: <span class="directive">DB</span> <span class="string">"Duty cycle"</span>, <span class="number">0</span>
+<span class="label">Duties</span>: <span class="directive">DB</span> DUTY_12, DUTY_25, DUTY_50, DUTY_75
+<span class="label">Labels</span>: <span class="directive">DB</span> <span class="string">"12.5%"</span>, <span class="number">0</span>, <span class="string">"25%  "</span>, <span class="number">0</span>, <span class="string">"50%  "</span>, <span class="number">0</span>, <span class="string">"75%  "</span>, <span class="number">0</span>
+
+<span class="directive">INCLUDE</span> <span class="string">"gfx.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"text.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"screen.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"frame.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"sound.asm"</span></code></pre>
+<p><strong>What you hear:</strong> the same note, four times, changing from thin to full to hollow and back to the sound of the second. The tests record each note and measure it. The pitch is 440 Hz every time, and the wave is high for 12.5%, 25%, 50% and 75% of each cycle, to within two percent.</p>
+<p>Notice how the label is found: the four strings are the same length (five characters and a zero), so the address of string <em>n</em> is the address of the first plus six times <em>n</em>. The program works out &times;6 as <code>(2n + n) &times; 2</code> with two additions and a doubling. Tables of equal-sized entries are the usual way to avoid any search.</p>
+<p class="bold-text">Key fact: a square channel's timbre is its duty cycle, two bits of <code>NRx1</code>. It never changes the pitch, and 75% sounds the same as 25%.</p>
+<h3 id="3-exercises">Try it yourself</h3>
+<ol>
+<li>Play the scale from Chapter 2 with <code>DUTY_12</code>, then with <code>DUTY_50</code>. Which do you prefer for a melody?</li>
+<li>Change the program so the duty alternates on every note of the scale. How many bytes of table do you need?</li>
+<li>The program writes the envelope every time through the loop. Move that write above the loop so it happens once. Does the sound change? Why or why not?</li>
+</ol>
+</section>
+
+<section>
+<h1 id="4-volume-envelopes">4. Volume Envelopes</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="4-in-high-level-languages">In High-Level Languages</h2>
+<p>A note that starts and stops at full volume sounds like a switch. Real instruments have a shape in time: a piano is loudest at the start and dies away, an organ swells and holds. Audio libraries describe it as an <em>envelope</em>, a gain that changes while the note plays, often attack, decay, sustain and release:</p>
+<pre><code>for each sample at time t:
+    out = wave(t) * gain(t)         # gain(t) goes 1.0 -&gt; 0.0 over the note</code></pre>
+<h2 id="4-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>Channels 1, 2 and 4 each carry a small envelope generator. You do not give it a curve; you give it three numbers and it steps the volume up or down by itself. They share one register, <code>rNRx2</code> (<code>rNR12</code>, <code>rNR22</code>, <code>rNR42</code>):</p>
+<pre><code>bits 7-4   bit 3        bits 2-0
+volume     direction    step time
+0 to 15    1 = rising   0 = none, else n/64 second per step
+           0 = falling</code></pre>
+<p>The channel starts at the volume in the top four bits. Every <em>step time</em> sixty-fourths of a second it moves one level in the chosen direction, and stops when it reaches 0 or 15. So the length of a fade is <em>volume &times; step time</em> sixty-fourths of a second. Four examples, all worked out:</p>
+<table>
+<tr><th>Value</th><th>Meaning</th><th>Takes</th></tr>
+<tr><td><code>$F1</code></td><td>Start at 15, fall, one level every 1/64 s</td><td>15 &times; 1/64 = 0.23 s: a pluck</td></tr>
+<tr><td><code>$F7</code></td><td>Start at 15, fall, one level every 7/64 s</td><td>15 &times; 7/64 = 1.6 s: a long fade</td></tr>
+<tr><td><code>$0B</code></td><td>Start at 0, <em>rise</em>, one level every 3/64 s</td><td>15 &times; 3/64 = 0.7 s: a swell, then it holds</td></tr>
+<tr><td><code>$C0</code></td><td>Start at 12, no envelope (step time 0)</td><td>Never changes: a steady tone</td></tr>
+</table>
+<p>The envelope is read when the note <em>starts</em>, so set it before the trigger. A step time of zero switches the envelope off and leaves the volume where it began. That is all the control there is: no attack-decay-sustain curve, only a straight line up or down at the speed you pick. Even so, careful use of it gives a surprising range:</p>
+<figure class="shot"><img src="data:image/png;base64,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" width="640" height="310" alt="The loudness of channel 2 over two seconds for each envelope, measured from the emulator output. Each step down or up is one volume level."><figcaption>The loudness of channel 2 over two seconds for each envelope, measured from the emulator output. Each step down or up is one volume level.</figcaption></figure>
+
+<h3 id="4-the-dac">The silent-channel rule</h3>
+<p>There is one trap. A channel's output goes through a small converter (the <em>DAC</em>) that is switched on by the envelope register, and it counts as on only if the top five bits of <code>NRx2</code> are not all zero: any volume above zero, or the direction bit set. A value like <code>$00</code> or <code>$07</code> (start at zero, falling) switches the whole channel off. The swell above is <code>$0B</code>, not <code>$03</code>, for exactly this reason: with the rising bit set, it counts as on even though it starts at silence. Writing <code>$00</code> to a playing channel silences it at once, but it also switches the output off, and on a real console that can make a small click as the level steps. A quieter way is to write <code>$08</code> (volume 0, rising, no step time, output still on) and then <em>start the channel again</em>: since the envelope is read only when a note starts, the register alone changes nothing until then. Chapter 10 does this for rests.</p>
+<p>Two volume controls are in play, and it helps to keep them apart. The <em>envelope</em> is a per-channel volume with 16 levels that changes during a note. The master volume in <code>rNR50</code> has 8 levels and applies to everything. Channel 3 has no envelope; it has a coarser fixed volume of its own (Chapter 7).</p>
+
+<h3 id="4-example">A complete example</h3>
+<p>This program plays A4 on channel 2 four times, two seconds each, once with each of the four envelopes above:</p>
+<pre><code><span class="comment">; envelope_demo.asm - Chapter 4: volume envelopes</span>
+<span class="comment">; The same note (A4) on channel 2, four times, with four different envelopes:</span>
+<span class="comment">; a quick pluck, a slow fade, a swell that grows from silence, and a steady tone.</span>
+<span class="directive">SECTION</span> <span class="string">"EnvVars"</span>, WRAM0
+<span class="label">wIndex</span>: <span class="directive">DS</span> <span class="number">1</span>
+
+<span class="directive">INCLUDE</span> <span class="string">"boot.inc"</span>
+<span class="directive">INCLUDE</span> <span class="string">"notes.inc"</span>
+
+    <span class="keyword">CALL</span> screen_init
+    <span class="keyword">CALL</span> sound_init
+    <span class="keyword">LD</span> B, <span class="number">2</span>
+    <span class="keyword">LD</span> C, <span class="number">2</span>
+    <span class="keyword">LD</span> HL, Title
+    <span class="keyword">CALL</span> show_text
+    <span class="keyword">XOR</span> A
+    <span class="keyword">LD</span> [wIndex], A
+    <span class="keyword">CALL</span> frame_init
+    <span class="keyword">EI</span>
+
+<span class="label">NextEnvelope</span>:
+    <span class="keyword">LD</span> A, [wIndex]
+    <span class="keyword">LD</span> E, A
+    <span class="keyword">LD</span> D, <span class="number">0</span>
+    <span class="keyword">LD</span> HL, Envelopes
+    <span class="keyword">ADD</span> HL, DE
+    <span class="keyword">LD</span> A, DUTY_50
+    <span class="keyword">LDH</span> [rNR21], A
+    <span class="keyword">LD</span> A, [HL]
+    <span class="keyword">LDH</span> [rNR22], A              <span class="comment">; the envelope</span>
+    <span class="keyword">LD</span> A, A4
+    <span class="keyword">CALL</span> note_freq
+    <span class="keyword">CALL</span> play_ch2
+
+    <span class="keyword">LD</span> A, [wIndex]              <span class="comment">; labels are eight characters each</span>
+    <span class="keyword">ADD</span> A
+    <span class="keyword">ADD</span> A
+    <span class="keyword">ADD</span> A
+    <span class="keyword">LD</span> E, A
+    <span class="keyword">LD</span> D, <span class="number">0</span>
+    <span class="keyword">LD</span> HL, Labels
+    <span class="keyword">ADD</span> HL, DE
+    <span class="keyword">LD</span> B, <span class="number">2</span>
+    <span class="keyword">LD</span> C, <span class="number">5</span>
+    <span class="keyword">PUSH</span> HL
+    <span class="keyword">CALL</span> print_at
+    <span class="keyword">POP</span> HL
+    <span class="keyword">CALL</span> print_string
+
+    <span class="keyword">LD</span> B, <span class="number">120</span>                   <span class="comment">; two seconds each: long enough to hear a slow fade</span>
+<span class="label">.wait</span>:
+    <span class="keyword">CALL</span> wait_frame
+    <span class="keyword">DEC</span> B
+    <span class="keyword">JR</span> NZ, .wait
+
+    <span class="keyword">LD</span> A, [wIndex]
+    <span class="keyword">INC</span> A
+    <span class="keyword">AND</span> <span class="number">3</span>
+    <span class="keyword">LD</span> [wIndex], A
+    <span class="keyword">JR</span> NextEnvelope
+
+<span class="label">Title</span>: <span class="directive">DB</span> <span class="string">"Envelopes"</span>, <span class="number">0</span>
+<span class="comment">; start volume (high 4 bits) | direction (bit 3) | step time (low 3 bits)</span>
+<span class="label">Envelopes</span>:
+    <span class="directive">DB</span> <span class="number">$F1</span>                      <span class="comment">; start at 15, fall, one step every 1/64 s</span>
+    <span class="directive">DB</span> <span class="number">$F7</span>                      <span class="comment">; start at 15, fall, one step every 7/64 s</span>
+    <span class="directive">DB</span> <span class="number">$03</span> | ENV_UP | <span class="number">$00</span>       <span class="comment">; start at 0, rise, one step every 3/64 s</span>
+    <span class="directive">DB</span> <span class="number">$C0</span>                      <span class="comment">; start at 12, no envelope: steady</span>
+<span class="label">Labels</span>: <span class="directive">DB</span> <span class="string">"pluck "</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="string">"fade  "</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="string">"swell "</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="string">"steady"</span>, <span class="number">0</span>, <span class="number">0</span>
+
+<span class="directive">INCLUDE</span> <span class="string">"gfx.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"text.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"screen.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"frame.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"sound.asm"</span></code></pre>
+<p><strong>What you hear:</strong> a quick pluck, then a long gentle fade, then a note that grows out of silence and holds, then a steady tone. The tests listen to the loudness of each: the pluck is silent within 18 frames, the fade is still audible after 0.8 s, the swell grows from silence and then holds, and the steady tone is at exactly 12/15 of full volume throughout.</p>
+<p class="bold-text">Key fact: an envelope is three numbers in one byte: where to start, which way to go, how fast. The hardware does the rest, so a note can fade without the program lifting a finger.</p>
+<h3 id="4-exercises">Try it yourself</h3>
+<ol>
+<li>Design an envelope for a snappy bass note: loud, gone in a quarter of a second. Which byte do you use, and which step times are too slow?</li>
+<li>Change the swell to <code>$09</code>. How long does it take to reach full volume now? (Work it out first, then listen.)</li>
+<li>What happens if you start the steady note with <code>$00</code>? Try it, then explain it using the silent-channel rule.</li>
+</ol>
+</section>
+
+<section>
+<h1 id="5-length-and-sound-effects">5. Length &amp; Sound Effects</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="5-in-high-level-languages">In High-Level Languages</h2>
+<p>A sound effect is a clip, and a clip has a length because the data runs out: the file holds 94 milliseconds of samples, so the sound lasts 94 milliseconds. You never say &ldquo;stop&rdquo;. You say <code>play(coin)</code> and the library drops the sound when the samples are used up.</p>
+<pre><code>play(coin)          # the clip is 0.1 s long, so it ends by itself</code></pre>
+<h2 id="5-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>A channel has no clip. A note keeps sounding for as long as the channel is on, even at volume zero; to end it you must either switch the channel off or stop it from the program. For short sounds there is a better answer: a <strong>length counter</strong> in each channel that counts down while the note plays and switches the channel off when it reaches zero.</p>
+<p>It takes two things. The length itself goes in the low six bits of <code>NRx1</code> (the low eight bits of <code>rNR31</code> for channel 3). And the counter is only used if you ask for it, with bit 6 of <code>NRx4</code>:</p>
+<pre><code>duration = (64 - length) / 256 second       channels 1, 2 and 4   (length 0 to 63)
+duration = (256 - length) / 256 second      channel 3             (length 0 to 255)</code></pre>
+<p>The counter runs at 256 steps a second, so the longest sound a square or noise channel can make by itself is a quarter of a second (length 0), and the shortest a 256th of a second. A length of 52 on channel 4 is <code>(64 &minus; 52) / 256</code>, or 47 ms. If the length-enable bit is not set the counter is ignored, and the note plays until the envelope or the program stops it.</p>
+
+<h3 id="5-recipes">Building an effect</h3>
+<p>A sound effect, then, is a handful of the choices you have met: a pitch (Chapter 2), a duty (3), an envelope (4) and a length. Three small ones:</p>
+<ul>
+<li><strong>Blip</strong>: a short high square note. Channel 1, 25% duty, C6, full volume with no fade, length 56 (31 ms). A button press or menu cursor.</li>
+<li><strong>Coin</strong>: two notes, B5 then E6, a fourth apart. The first is cut short by its length (94 ms), the second (156 ms) fades. The second note starts six frames after the first, so the program needs a timer.</li>
+<li><strong>Bonk</strong>: a 47 ms burst of low noise on channel 4, so that it does not disturb any music on the other channels.</li>
+</ul>
+<p>The coin shows the one new idea: <em>doing something later</em>. The program has no sleep, so it stores a countdown of frames in memory and tests it once per frame:</p>
+<pre><code><span class="label">MainLoop</span>:
+    <span class="keyword">CALL</span> wait_frame
+    <span class="keyword">CALL</span> read_joypad
+
+    <span class="keyword">LD</span> A, [wCoin]               <span class="comment">; is the second note of a coin due?</span>
+    <span class="keyword">OR</span> A
+    <span class="keyword">JR</span> Z, .no_coin
+    <span class="keyword">DEC</span> A
+    <span class="keyword">LD</span> [wCoin], A
+    <span class="keyword">CALL</span> Z, coin_second
+<span class="label">.no_coin</span>:
+    <span class="keyword">LD</span> A, [wJoyNew]
+    <span class="keyword">AND</span> PADF_A
+    <span class="keyword">CALL</span> NZ, coin
+    <span class="keyword">LD</span> A, [wJoyNew]
+    <span class="keyword">AND</span> PADF_B
+    <span class="keyword">CALL</span> NZ, blip
+    <span class="keyword">LD</span> A, [wJoyNew]
+    <span class="keyword">AND</span> PADF_START
+    <span class="keyword">CALL</span> NZ, bonk
+    <span class="keyword">JR</span> MainLoop</code></pre>
+<p>When the A button goes down, <code>coin</code> plays the first note and sets <code>wCoin</code> to 6. Each frame the countdown goes down by one, and when it reaches zero <code>CALL Z, coin_second</code> plays the second. The program is never waiting; it is running a loop sixty times a second and each pass takes one step. Chapter 9 makes the idea systematic.</p>
+
+<h3 id="5-example">A complete example</h3>
+<p>A plays the coin, B plays the blip and START plays the bonk. None of the three needs the program to switch anything off:</p>
+<pre><code><span class="comment">; sfx_demo.asm - Chapter 5: short sound effects with the length counter</span>
+<span class="comment">; A = coin (two notes on channel 2), B = blip (one short note on channel 1),</span>
+<span class="comment">; START = bonk (a burst of noise on channel 4).  None of them needs the program to stop the</span>
+<span class="comment">; sound: each one is given a length when it starts and the hardware switches it off.</span>
+<span class="directive">SECTION</span> <span class="string">"SfxVars"</span>, WRAM0
+<span class="label">wCoin</span>: <span class="directive">DS</span> <span class="number">1</span>                     <span class="comment">; frames until the second note of the coin (0 = none pending)</span>
+
+<span class="directive">INCLUDE</span> <span class="string">"boot.inc"</span>
+<span class="directive">INCLUDE</span> <span class="string">"notes.inc"</span>
+
+    <span class="keyword">CALL</span> screen_init
+    <span class="keyword">CALL</span> sound_init
+    <span class="keyword">LD</span> B, <span class="number">2</span>
+    <span class="keyword">LD</span> C, <span class="number">2</span>
+    <span class="keyword">LD</span> HL, Title
+    <span class="keyword">CALL</span> show_text
+    <span class="keyword">LD</span> B, <span class="number">2</span>
+    <span class="keyword">LD</span> C, <span class="number">5</span>
+    <span class="keyword">LD</span> HL, Help1
+    <span class="keyword">CALL</span> show_text
+    <span class="keyword">LD</span> B, <span class="number">2</span>
+    <span class="keyword">LD</span> C, <span class="number">6</span>
+    <span class="keyword">LD</span> HL, Help2
+    <span class="keyword">CALL</span> show_text
+    <span class="keyword">LD</span> B, <span class="number">2</span>
+    <span class="keyword">LD</span> C, <span class="number">7</span>
+    <span class="keyword">LD</span> HL, Help3
+    <span class="keyword">CALL</span> show_text
+    <span class="keyword">XOR</span> A
+    <span class="keyword">LD</span> [wCoin], A
+    <span class="keyword">LD</span> [wJoy], A
+    <span class="keyword">CALL</span> frame_init
+    <span class="keyword">EI</span>
+
+<span class="label">MainLoop</span>:
+    <span class="keyword">CALL</span> wait_frame
+    <span class="keyword">CALL</span> read_joypad
+
+    <span class="keyword">LD</span> A, [wCoin]               <span class="comment">; is the second note of a coin due?</span>
+    <span class="keyword">OR</span> A
+    <span class="keyword">JR</span> Z, .no_coin
+    <span class="keyword">DEC</span> A
+    <span class="keyword">LD</span> [wCoin], A
+    <span class="keyword">CALL</span> Z, coin_second
+<span class="label">.no_coin</span>:
+    <span class="keyword">LD</span> A, [wJoyNew]
+    <span class="keyword">AND</span> PADF_A
+    <span class="keyword">CALL</span> NZ, coin
+    <span class="keyword">LD</span> A, [wJoyNew]
+    <span class="keyword">AND</span> PADF_B
+    <span class="keyword">CALL</span> NZ, blip
+    <span class="keyword">LD</span> A, [wJoyNew]
+    <span class="keyword">AND</span> PADF_START
+    <span class="keyword">CALL</span> NZ, bonk
+    <span class="keyword">JR</span> MainLoop
+
+<span class="comment">; --- Coin: B5, then E6 six frames later ---</span>
+<span class="label">coin</span>:
+    <span class="keyword">LD</span> A, DUTY_50 | <span class="number">40</span>          <span class="comment">; length 40: the sound lasts (64 - 40) / 256 s = 94 ms</span>
+    <span class="keyword">LDH</span> [rNR21], A
+    <span class="keyword">LD</span> A, <span class="number">$F0</span>
+    <span class="keyword">LDH</span> [rNR22], A              <span class="comment">; full volume, no fade: the length counter ends it</span>
+    <span class="keyword">LD</span> A, B5
+    <span class="keyword">CALL</span> note_freq
+    <span class="keyword">CALL</span> start_ch2_short
+    <span class="keyword">LD</span> A, <span class="number">6</span>
+    <span class="keyword">LD</span> [wCoin], A
+    <span class="keyword">RET</span>
+
+<span class="label">coin_second</span>:
+    <span class="keyword">LD</span> A, DUTY_50 | <span class="number">24</span>          <span class="comment">; a longer second note: (64 - 24) / 256 s = 156 ms</span>
+    <span class="keyword">LDH</span> [rNR21], A
+    <span class="keyword">LD</span> A, <span class="number">$F3</span>
+    <span class="keyword">LDH</span> [rNR22], A              <span class="comment">; and let it fade as it goes</span>
+    <span class="keyword">LD</span> A, E6
+    <span class="keyword">CALL</span> note_freq
+    <span class="comment">; (fall through)</span>
+
+<span class="comment">; --- Start channel 2 on pitch DE, to stop by itself when its length runs out ---</span>
+<span class="label">start_ch2_short</span>:
+    <span class="keyword">LD</span> A, E
+    <span class="keyword">LDH</span> [rNR23], A
+    <span class="keyword">LD</span> A, D
+    <span class="keyword">OR</span> NRX4_START | NRX4_LENGTH
+    <span class="keyword">LDH</span> [rNR24], A
+    <span class="keyword">RET</span>
+
+<span class="comment">; --- Blip: C6 for 31 ms on channel 1 ---</span>
+<span class="label">blip</span>:
+    <span class="keyword">XOR</span> A
+    <span class="keyword">LDH</span> [rNR10], A              <span class="comment">; no sweep</span>
+    <span class="keyword">LD</span> A, DUTY_25 | <span class="number">56</span>          <span class="comment">; (64 - 56) / 256 s = 31 ms</span>
+    <span class="keyword">LDH</span> [rNR11], A
+    <span class="keyword">LD</span> A, <span class="number">$F0</span>
+    <span class="keyword">LDH</span> [rNR12], A
+    <span class="keyword">LD</span> A, C6
+    <span class="keyword">CALL</span> note_freq
+    <span class="keyword">LD</span> A, E
+    <span class="keyword">LDH</span> [rNR13], A
+    <span class="keyword">LD</span> A, D
+    <span class="keyword">OR</span> NRX4_START | NRX4_LENGTH
+    <span class="keyword">LDH</span> [rNR14], A
+    <span class="keyword">RET</span>
+
+<span class="comment">; --- Bonk: 47 ms of low noise on channel 4 ---</span>
+<span class="label">bonk</span>:
+    <span class="keyword">LD</span> A, <span class="number">52</span>                    <span class="comment">; (64 - 52) / 256 s = 47 ms</span>
+    <span class="keyword">LDH</span> [rNR41], A
+    <span class="keyword">LD</span> A, <span class="number">$F0</span>
+    <span class="keyword">LDH</span> [rNR42], A
+    <span class="keyword">LD</span> A, <span class="number">$64</span>                   <span class="comment">; low-pitched noise (Chapter 8 explains this byte)</span>
+    <span class="keyword">LDH</span> [rNR43], A
+    <span class="keyword">LD</span> A, NRX4_START | NRX4_LENGTH
+    <span class="keyword">LDH</span> [rNR44], A
+    <span class="keyword">RET</span>
+
+<span class="label">Title</span>: <span class="directive">DB</span> <span class="string">"Sound effects"</span>, <span class="number">0</span>
+<span class="label">Help1</span>: <span class="directive">DB</span> <span class="string">"A     coin"</span>, <span class="number">0</span>
+<span class="label">Help2</span>: <span class="directive">DB</span> <span class="string">"B     blip"</span>, <span class="number">0</span>
+<span class="label">Help3</span>: <span class="directive">DB</span> <span class="string">"START bonk"</span>, <span class="number">0</span>
+
+<span class="directive">INCLUDE</span> <span class="string">"gfx.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"text.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"screen.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"frame.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"sound.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"joypad.asm"</span></code></pre>
+<p><strong>What you hear:</strong> three distinct sounds, each over in well under a fifth of a second. The tests press each button in turn and measure the result. The coin's two notes are 988 Hz and 1318 Hz, and the whole sound is over in about fifteen frames. The blip lasts two frames and has a 25% wave. The bonk has no steady pitch (it is noise) and lasts a few frames. (A length counter begins counting at the next tick of its 256 Hz clock, so a sound can end up to a fraction of a frame shorter than the formula says.)</p>
+<p class="bold-text">Key fact: set a length and the length-enable bit, and a channel stops itself. A sound effect is a pitch, a shape, an envelope and a length, each a byte or two, written once.</p>
+<h3 id="5-exercises">Try it yourself</h3>
+<ol>
+<li>Add a &ldquo;power-up&rdquo; effect: three rising notes, one every four frames. How many countdown variables do you need?</li>
+<li>Make the blip lower and longer: C4 for about a tenth of a second. Which value goes in <code>NR11</code>?</li>
+<li>Remove <code>NRX4_LENGTH</code> from the blip. What happens, and what stops the sound?</li>
+</ol>
+</section>
+<section>
+<h1 id="6-frequency-sweep">6. Frequency Sweep</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="6-in-high-level-languages">In High-Level Languages</h2>
+<p>To slide a pitch you change the frequency over time, one small step per update. Libraries offer a ramp, but under it is the same loop: every few milliseconds compute a new frequency and hand it to the oscillator.</p>
+<pre><code>for each update:
+    osc.frequency = osc.frequency * 1.02          # up a little</code></pre>
+<p>That is a job for the program, repeated many times a second, for as long as the slide lasts.</p>
+<h2 id="6-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>Channel 1 has a sweep unit that does this slide in hardware. The program starts the note and the sweep register <code>rNR10</code> (<code>$FF10</code>) says how the pitch should move afterwards:</p>
+<pre><code>bit 7     bits 6-4      bit 3          bits 2-0
+(unused)  step time     direction      shift
+          0 = no sweep  0 = rising     0 to 7
+          else n/128 s  1 = falling</code></pre>
+<p>Each step, the 11-bit pitch value <em>x</em> from Chapter 2 is changed by a fraction of itself:</p>
+<pre><code>rising:   x = x + x / 2^shift
+falling:  x = x - x / 2^shift</code></pre>
+<p>so a <em>shift</em> of 5 means each step moves the value by 1/32, and a shift of 1 by a half. The step time is in 128ths of a second, so <code>1</code> means a step every 7.8 ms and <code>7</code> every 55 ms. A step time of 0 turns the sweep off. Three effects, all done in this way, as the example plays them:</p>
+<table>
+<tr><th>Effect</th><th><code>NR10</code></th><th>Decoded</th><th>Start pitch</th></tr>
+<tr><td>Jump</td><td><code>$16</code></td><td>Step every 7.8 ms, rising, shift 6: each step adds 1/64</td><td><code>$500</code> (170 Hz)</td></tr>
+<tr><td>Laser</td><td><code>$2D</code></td><td>Step every 15.6 ms, falling, shift 5: each step takes off 1/32</td><td><code>$7A0</code> (1365 Hz)</td></tr>
+<tr><td>Slide</td><td><code>$7F</code></td><td>Step every 55 ms, falling, shift 7: each step takes off 1/128</td><td><code>$7C0</code> (2048 Hz)</td></tr>
+</table>
+<p>The sweep happens to the 11-bit <em>value</em>, not to the frequency you hear, and the relation between them (<code>131072 / (2048 &minus; x)</code>) is not a straight line. A rising sweep therefore starts slowly and ends in a rush; a falling one dives and then lingers. The figure shows the three effects as the emulated chip played them:</p>
+<figure class="shot"><img src="data:image/png;base64,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" width="640" height="364" alt="Pitch against time for the three sweeps, measured from the emulator&#x27;s sound output. Note the log scale of the pitch axis."><figcaption>Pitch against time for the three sweeps, measured from the emulator's sound output. Note the log scale of the pitch axis.</figcaption></figure>
+<p>One more rule makes a good sound effect for nothing. If a <em>rising</em> sweep tries to take the value above 2047, the hardware gives up and switches the channel off. That is how the jump ends: it climbs and then simply stops, without any envelope or length. A falling sweep cannot do this; it comes to rest near the bottom of the range and goes on playing until the envelope finishes it, which is why the laser and slide use envelopes of about the right duration.</p>
+
+<h3 id="6-example">A complete example</h3>
+<p>This program plays the three effects in turn, ninety frames apart. It sets the sweep, the envelope and the start pitch from a four-byte table entry, and then does nothing at all to the pitch: the hardware slides it.</p>
+<pre><code><span class="comment">; sweep_demo.asm - Chapter 6: the frequency sweep of channel 1</span>
+<span class="comment">; Three effects, one after another, each played by the hardware sweep unit alone: after the</span>
+<span class="comment">; note is started the program does not touch the pitch again.</span>
+<span class="directive">SECTION</span> <span class="string">"SweepVars"</span>, WRAM0
+<span class="label">wIndex</span>: <span class="directive">DS</span> <span class="number">1</span>
+
+<span class="directive">INCLUDE</span> <span class="string">"boot.inc"</span>
+
+    <span class="keyword">CALL</span> screen_init
+    <span class="keyword">CALL</span> sound_init
+    <span class="keyword">LD</span> B, <span class="number">2</span>
+    <span class="keyword">LD</span> C, <span class="number">2</span>
+    <span class="keyword">LD</span> HL, Title
+    <span class="keyword">CALL</span> show_text
+    <span class="keyword">XOR</span> A
+    <span class="keyword">LD</span> [wIndex], A
+    <span class="keyword">CALL</span> frame_init
+    <span class="keyword">EI</span>
+
+<span class="label">NextSweep</span>:
+    <span class="keyword">LD</span> A, [wIndex]
+    <span class="keyword">ADD</span> A
+    <span class="keyword">ADD</span> A                       <span class="comment">; four bytes per effect</span>
+    <span class="keyword">LD</span> E, A
+    <span class="keyword">LD</span> D, <span class="number">0</span>
+    <span class="keyword">LD</span> HL, Effects
+    <span class="keyword">ADD</span> HL, DE
+    <span class="keyword">LD</span> A, [HL+]
+    <span class="keyword">LDH</span> [rNR10], A              <span class="comment">; the sweep: time, direction, shift</span>
+    <span class="keyword">LD</span> A, [HL+]
+    <span class="keyword">LDH</span> [rNR12], A              <span class="comment">; envelope</span>
+    <span class="keyword">LD</span> A, [HL+]
+    <span class="keyword">LD</span> E, A
+    <span class="keyword">LD</span> D, [HL]                  <span class="comment">; DE = the pitch to start from</span>
+    <span class="keyword">LD</span> A, DUTY_50
+    <span class="keyword">LDH</span> [rNR11], A
+    <span class="keyword">CALL</span> play_ch1
+
+    <span class="keyword">LD</span> A, [wIndex]              <span class="comment">; labels are six characters each</span>
+    <span class="keyword">ADD</span> A
+    <span class="keyword">LD</span> L, A
+    <span class="keyword">LD</span> H, <span class="number">0</span>
+    <span class="keyword">LD</span> D, H
+    <span class="keyword">LD</span> E, L
+    <span class="keyword">ADD</span> HL, HL
+    <span class="keyword">ADD</span> HL, DE                  <span class="comment">; 6 * index</span>
+    <span class="keyword">LD</span> DE, Labels
+    <span class="keyword">ADD</span> HL, DE
+    <span class="keyword">LD</span> B, <span class="number">2</span>
+    <span class="keyword">LD</span> C, <span class="number">5</span>
+    <span class="keyword">PUSH</span> HL
+    <span class="keyword">CALL</span> print_at
+    <span class="keyword">POP</span> HL
+    <span class="keyword">CALL</span> print_string
+
+    <span class="keyword">LD</span> B, <span class="number">90</span>
+<span class="label">.wait</span>:
+    <span class="keyword">CALL</span> wait_frame
+    <span class="keyword">DEC</span> B
+    <span class="keyword">JR</span> NZ, .wait
+
+    <span class="keyword">LD</span> A, [wIndex]
+    <span class="keyword">INC</span> A
+    <span class="keyword">CP</span> <span class="number">3</span>
+    <span class="keyword">JR</span> NZ, .store
+    <span class="keyword">XOR</span> A
+<span class="label">.store</span>:
+    <span class="keyword">LD</span> [wIndex], A
+    <span class="keyword">JR</span> NextSweep
+
+<span class="label">Title</span>: <span class="directive">DB</span> <span class="string">"Frequency sweep"</span>, <span class="number">0</span>
+<span class="comment">; NR10, NR12, pitch value (2 bytes)</span>
+<span class="comment">;   NR10 = time (bits 6-4) | direction (bit 3: 1 = falling) | shift (bits 2-0)</span>
+<span class="label">Effects</span>:
+    <span class="directive">DB</span> <span class="number">$16</span>, <span class="number">$F3</span>, <span class="number">$00</span>, <span class="number">$05</span>       <span class="comment">; jump:  rises, a step every 7.8 ms, each adding 1/64 of the value</span>
+    <span class="directive">DB</span> <span class="number">$2D</span>, <span class="number">$F3</span>, <span class="number">$A0</span>, <span class="number">$07</span>       <span class="comment">; laser: falls, a step every 15.6 ms, each taking off 1/32</span>
+    <span class="directive">DB</span> <span class="number">$7F</span>, <span class="number">$F7</span>, <span class="number">$C0</span>, <span class="number">$07</span>       <span class="comment">; slide: falls slowly, a step every 54 ms, each taking off 1/128</span>
+<span class="label">Labels</span>: <span class="directive">DB</span> <span class="string">"jump "</span>, <span class="number">0</span>, <span class="string">"laser"</span>, <span class="number">0</span>, <span class="string">"slide"</span>, <span class="number">0</span>
+
+<span class="directive">INCLUDE</span> <span class="string">"gfx.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"text.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"screen.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"frame.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"sound.asm"</span></code></pre>
+<p><strong>What you hear:</strong> a rising &ldquo;boing&rdquo; that stops as it runs off the top, a falling &ldquo;pew&rdquo; of a laser, and a long glide down. The tests measure the pitch every few frames from the recording: it rises for the jump (and the channel is silent after it), falls for the laser, and falls steadily for the slide, starting above 1500 Hz.</p>
+<p>The sweep belongs to the channel, not to the note. After a sweep effect has played, <code>rNR10</code> is still set, and the next note on channel 1 slides too unless the program writes <code>0</code> back to it. Chapter 10's music engine does this every time it plays a note.</p>
+<p class="bold-text">Key fact: channel 1's sweep unit changes the pitch by itself, a fraction at a time, and a rising sweep that passes the top of the range ends the note. A pitch change is one byte to <code>rNR10</code> and a note.</p>
+<h3 id="6-exercises">Try it yourself</h3>
+<ol>
+<li>Make a laser that is twice as fast. Which field of <code>NR10</code> do you change?</li>
+<li>Make the jump start lower, from C3 (<code>$416</code>). Does it end sooner or later? Why?</li>
+<li>Put <code>NR10</code> at <code>$00</code> in the laser's table entry. What do you hear?</li>
+</ol>
+</section>
+
+<section>
+<h1 id="7-the-wave-channel">7. The Wave Channel</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="7-in-high-level-languages">In High-Level Languages</h2>
+<p>When a library offers a custom oscillator, you give it a list of numbers describing one cycle of the wave, and it plays the list over and over at the right speed. This is <em>wavetable synthesis</em>:</p>
+<pre><code>table = [sin(2 * pi * i / 32) for i in range(32)]      # one cycle, 32 numbers
+osc = WavetableOscillator(table, frequency = 220)</code></pre>
+<h2 id="7-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>Channel 3 is exactly that. Instead of a fixed square wave it plays a table you provide: <strong>32 samples of 4 bits each</strong>, kept in 16 bytes of <em>wave RAM</em> at <code>$FF30-$FF3F</code>. Each sample is a level from 0 to 15, two to a byte, with the first sample in the high four bits. The channel reads the 32 samples in order, then starts again, and the faster it does so the higher the note.</p>
+
+<h3 id="7-drawing-a-wave">Drawing a wave by hand</h3>
+<p>A sine wave is smooth, and four bits give only 16 levels, so a sine here is a staircase. The table is a recipe: sample <em>i</em> is <code>7.5 + 7.5 &times; sin(2&pi;(i + 0.5) / 32)</code>, rounded. The first few, worked out:</p>
+<pre><code>i = 0:  sin(2pi * 0.5 / 32) = 0.10   -&gt;   7.5 + 0.7  = 8.2   -&gt; 8
+i = 1:  sin(2pi * 1.5 / 32) = 0.29   -&gt;   7.5 + 2.2  = 9.7   -&gt; 10  ($A)
+i = 2:  sin(2pi * 2.5 / 32) = 0.47   -&gt;   7.5 + 3.5  = 11.0  -&gt; 11  ($B)
+i = 3:  sin(2pi * 3.5 / 32) = 0.63   -&gt;   7.5 + 4.8  = 12.3  -&gt; 12  ($C)
+
+first two bytes:  $8A, $BC       (samples 0 and 1, then samples 2 and 3)</code></pre>
+<p>The other three shapes are even easier: a triangle counts up 0 to 15 and back down, a sawtooth counts up 0 to 15 two samples at a time and drops, and a pulse is 15 for the first eight samples and 0 for the rest. The tables are in the example below. The figure shows what each one sounded like through the emulated chip, both the staircase and the sharp edges:</p>
+<figure class="shot"><img src="data:image/png;base64,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" width="640" height="366" alt="The sound of channel 3 playing each wave at A3 (220 Hz), measured from the emulator: two cycles each."><figcaption>The sound of channel 3 playing each wave at A3 (220 Hz), measured from the emulator: two cycles each.</figcaption></figure>
+
+<h3 id="7-registers">The channel's registers</h3>
+<table>
+<tr><th>Register</th><th>Address</th><th>Meaning</th></tr>
+<tr><td><code>rNR30</code></td><td><code>$FF1A</code></td><td>Bit 7: the channel on (1) or off (0)</td></tr>
+<tr><td><code>rNR31</code></td><td><code>$FF1B</code></td><td>Length, 0&ndash;255 (Chapter 5)</td></tr>
+<tr><td><code>rNR32</code></td><td><code>$FF1C</code></td><td>Volume, in bits 6&ndash;5: <code>%00</code> silent, <code>%01</code> full, <code>%10</code> half, <code>%11</code> a quarter</td></tr>
+<tr><td><code>rNR33</code>, <code>rNR34</code></td><td><code>$FF1D</code>, <code>$FF1E</code></td><td>Pitch and start, as for channels 1 and 2</td></tr>
+</table>
+<p>Three differences from the square channels matter. First, <strong>there is no envelope</strong>: the volume is one of four fixed levels (silent, full, half, a quarter), chosen in <code>NR32</code>, and a note neither fades nor swells unless the program changes <code>NR32</code> in step with the frame. Second, <strong>the channel must be off to change its wave</strong>: <code>wave_load</code> switches channel 3 off, copies the 16 bytes, and switches it on again. Third, <strong>the pitch is one octave lower</strong>. The channel plays 32 samples per cycle, so its frequency is</p>
+<pre><code>frequency = 65536 / (2048 - x)  Hz        (channels 1 and 2: 131072 / (2048 - x))</code></pre>
+<p>The same value <em>x</em> therefore gives a note an octave lower than on channel 1 or 2. The simple answer is to ask for the note an octave up: the example plays A3 by passing <code>A3 + 12</code> to <code>note_freq</code>. (This is also why channel 3 is the usual choice for bass: its range reaches an octave lower.)</p>
+<pre><code><span class="comment">; --- Copy 16 bytes (32 samples of 4 bits) from HL into the wave RAM ---</span>
+<span class="comment">; Channel 3 is switched off while the wave RAM is rewritten, then back on.</span>
+<span class="label">wave_load</span>:
+    <span class="keyword">XOR</span> A
+    <span class="keyword">LDH</span> [rNR30], A          <span class="comment">; off</span>
+    <span class="keyword">LD</span> DE, rWAVE
+    <span class="keyword">LD</span> B, <span class="number">16</span>
+<span class="label">.copy</span>:
+    <span class="keyword">LD</span> A, [HL+]
+    <span class="keyword">LD</span> [DE], A
+    <span class="keyword">INC</span> DE
+    <span class="keyword">DEC</span> B
+    <span class="keyword">JR</span> NZ, .copy
+    <span class="keyword">LD</span> A, WAVE_ON
+    <span class="keyword">LDH</span> [rNR30], A          <span class="comment">; on</span>
+    <span class="keyword">RET</span></code></pre>
+
+<h3 id="7-example">A complete example</h3>
+<p>This program loads each of four waves in turn and plays A3 with it for 1.25 seconds:</p>
+<pre><code><span class="comment">; wave_demo.asm - Chapter 7: the programmable wave channel</span>
+<span class="comment">; Channel 3 plays whatever 32 samples are in wave RAM.  The same note (A3) is played with</span>
+<span class="comment">; four different wave shapes: sine, triangle, sawtooth and a thin pulse.</span>
+<span class="directive">SECTION</span> <span class="string">"WaveVars"</span>, WRAM0
+<span class="label">wIndex</span>: <span class="directive">DS</span> <span class="number">1</span>
+
+<span class="directive">INCLUDE</span> <span class="string">"boot.inc"</span>
+<span class="directive">INCLUDE</span> <span class="string">"notes.inc"</span>
+
+    <span class="keyword">CALL</span> screen_init
+    <span class="keyword">CALL</span> sound_init
+    <span class="keyword">LD</span> B, <span class="number">2</span>
+    <span class="keyword">LD</span> C, <span class="number">2</span>
+    <span class="keyword">LD</span> HL, Title
+    <span class="keyword">CALL</span> show_text
+    <span class="keyword">XOR</span> A
+    <span class="keyword">LD</span> [wIndex], A
+    <span class="keyword">CALL</span> frame_init
+    <span class="keyword">EI</span>
+
+<span class="label">NextWave</span>:
+    <span class="keyword">LD</span> A, [wIndex]              <span class="comment">; each wave is 16 bytes</span>
+    <span class="keyword">SWAP</span> A
+    <span class="keyword">LD</span> E, A
+    <span class="keyword">LD</span> D, <span class="number">0</span>
+    <span class="keyword">LD</span> HL, Waves
+    <span class="keyword">ADD</span> HL, DE
+    <span class="keyword">CALL</span> wave_load              <span class="comment">; wave RAM &lt;- 16 bytes; channel 3 on</span>
+
+    <span class="keyword">LD</span> A, WAVE_FULL
+    <span class="keyword">LDH</span> [rNR32], A              <span class="comment">; output level: full</span>
+    <span class="keyword">LD</span> A, A3 + <span class="number">12</span>               <span class="comment">; this channel sounds an octave lower than the square ones,</span>
+    <span class="keyword">CALL</span> note_freq              <span class="comment">; so ask for the note an octave up</span>
+    <span class="keyword">CALL</span> play_ch3
+
+    <span class="keyword">LD</span> A, [wIndex]              <span class="comment">; labels are nine bytes each (eight letters and the zero)</span>
+    <span class="keyword">LD</span> E, A
+    <span class="keyword">ADD</span> A
+    <span class="keyword">ADD</span> A
+    <span class="keyword">ADD</span> A                       <span class="comment">; 8 * index</span>
+    <span class="keyword">ADD</span> E                       <span class="comment">; 9 * index</span>
+    <span class="keyword">LD</span> E, A
+    <span class="keyword">LD</span> D, <span class="number">0</span>
+    <span class="keyword">LD</span> HL, Labels
+    <span class="keyword">ADD</span> HL, DE
+    <span class="keyword">LD</span> B, <span class="number">2</span>
+    <span class="keyword">LD</span> C, <span class="number">5</span>
+    <span class="keyword">PUSH</span> HL
+    <span class="keyword">CALL</span> print_at
+    <span class="keyword">POP</span> HL
+    <span class="keyword">CALL</span> print_string
+
+    <span class="keyword">LD</span> B, <span class="number">75</span>
+<span class="label">.wait</span>:
+    <span class="keyword">CALL</span> wait_frame
+    <span class="keyword">DEC</span> B
+    <span class="keyword">JR</span> NZ, .wait
+
+    <span class="keyword">LD</span> A, [wIndex]
+    <span class="keyword">INC</span> A
+    <span class="keyword">AND</span> <span class="number">3</span>
+    <span class="keyword">LD</span> [wIndex], A
+    <span class="keyword">JR</span> NextWave
+
+<span class="label">Title</span>: <span class="directive">DB</span> <span class="string">"Wave channel"</span>, <span class="number">0</span>
+<span class="label">Labels</span>: <span class="directive">DB</span> <span class="string">"sine    "</span>, <span class="number">0</span>, <span class="string">"triangle"</span>, <span class="number">0</span>, <span class="string">"sawtooth"</span>, <span class="number">0</span>, <span class="string">"pulse   "</span>, <span class="number">0</span>
+
+<span class="comment">; Each wave: 32 samples of 4 bits, two to a byte, the first sample in the high four bits.</span>
+<span class="label">Waves</span>:
+    <span class="directive">DB</span> <span class="number">$8A</span>, <span class="number">$BC</span>, <span class="number">$DE</span>, <span class="number">$FF</span>, <span class="number">$FF</span>, <span class="number">$ED</span>, <span class="number">$CB</span>, <span class="number">$A8</span>, <span class="number">$75</span>, <span class="number">$43</span>, <span class="number">$21</span>, <span class="number">$00</span>, <span class="number">$00</span>, <span class="number">$12</span>, <span class="number">$34</span>, <span class="number">$57</span>   <span class="comment">; sine</span>
+    <span class="directive">DB</span> <span class="number">$01</span>, <span class="number">$23</span>, <span class="number">$45</span>, <span class="number">$67</span>, <span class="number">$89</span>, <span class="number">$AB</span>, <span class="number">$CD</span>, <span class="number">$EF</span>, <span class="number">$FE</span>, <span class="number">$DC</span>, <span class="number">$BA</span>, <span class="number">$98</span>, <span class="number">$76</span>, <span class="number">$54</span>, <span class="number">$32</span>, <span class="number">$10</span>   <span class="comment">; triangle</span>
+    <span class="directive">DB</span> <span class="number">$00</span>, <span class="number">$11</span>, <span class="number">$22</span>, <span class="number">$33</span>, <span class="number">$44</span>, <span class="number">$55</span>, <span class="number">$66</span>, <span class="number">$77</span>, <span class="number">$88</span>, <span class="number">$99</span>, <span class="number">$AA</span>, <span class="number">$BB</span>, <span class="number">$CC</span>, <span class="number">$DD</span>, <span class="number">$EE</span>, <span class="number">$FF</span>   <span class="comment">; sawtooth</span>
+    <span class="directive">DB</span> <span class="number">$FF</span>, <span class="number">$FF</span>, <span class="number">$FF</span>, <span class="number">$FF</span>, <span class="number">$00</span>, <span class="number">$00</span>, <span class="number">$00</span>, <span class="number">$00</span>, <span class="number">$00</span>, <span class="number">$00</span>, <span class="number">$00</span>, <span class="number">$00</span>, <span class="number">$00</span>, <span class="number">$00</span>, <span class="number">$00</span>, <span class="number">$00</span>   <span class="comment">; pulse: high for 8 of 32</span>
+
+<span class="directive">INCLUDE</span> <span class="string">"gfx.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"text.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"screen.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"frame.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"sound.asm"</span></code></pre>
+<p><strong>What you hear:</strong> the same pitch four times in four voices: a smooth, flute-like sine; a slightly brighter triangle; a rasping sawtooth; and a thin pulse. The tests check that all four are A3 (220 Hz) and then measure each wave's makeup: the sine is nearly pure, the triangle has only odd harmonics falling quickly, the sawtooth has all of them falling slowly, and the quarter pulse lacks its fourth harmonic. The four tables are also checked against their formulae.</p>
+<p class="bold-text">Key fact: channel 3 plays 32 four-bit samples that you write. It has no envelope and one octave less pitch for the same number; switch it off to change the wave.</p>
+<h3 id="7-exercises">Try it yourself</h3>
+<ol>
+<li>Draw the samples for a &ldquo;half-sine&rdquo; (the top half of a sine wave, then flat) and play it. What does it sound like next to the sine?</li>
+<li>Change <code>WAVE_FULL</code> to <code>WAVE_HALF</code>. By how much does the volume fall?</li>
+<li>Make the wave louder at the start and quieter later by changing <code>rNR32</code> during the note. How often must you change it, and what does the frame counter of Chapter 9 give you?</li>
+</ol>
+</section>
+
+<section>
+<h1 id="8-the-noise-channel">8. The Noise Channel</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="8-in-high-level-languages">In High-Level Languages</h2>
+<p>Noise is just random numbers: fill a buffer with them and play it. A drum or an explosion is noise with a volume envelope, perhaps filtered:</p>
+<pre><code>for each sample:
+    out = random() * gain(t)          # hiss</code></pre>
+<h2 id="8-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>Channel 4 makes noise with a <em>linear feedback shift register</em>, a 15-bit pattern of bits that is shifted along at a steady rate; each time it moves, a new bit is fed in, made from two of the old ones, in a way that makes the sequence look random and take 32,767 steps to repeat. The channel's output is one bit of it. The program controls two things: how fast the register is clocked, and how long the pattern is.</p>
+<p>Both are in <code>rNR43</code> (<code>$FF22</code>):</p>
+<pre><code>bits 7-4   bit 3        bits 2-0
+shift s    width        divisor r
+0 to 13    0 = 15 bits  0 to 7  (0 counts as 0.5)
+           1 = 7 bits
+
+clock = 262144 / (r * 2^s)  Hz</code></pre>
+<p>A high clock rate gives a high, hissy noise; a low one a rumble. The <em>width</em> bit shortens the pattern from 32,767 steps to 127. A pattern of 127 steps comes round about 258 times as often, and a repeat that fast is heard as a pitch: such a noise has a buzzing tone, at the clock rate divided by 127.</p>
+<p>Channel 4 has an envelope (<code>rNR42</code>, <code>$FF21</code>, as in Chapter 4), a length (<code>rNR41</code>, Chapter 5) and a start bit in <code>rNR44</code> (<code>$FF23</code>), but no pitch registers. Five sounds, each written as an envelope byte and a noise byte:</p>
+<table>
+<tr><th>Sound</th><th><code>NR42</code></th><th><code>NR43</code></th><th>Why</th></tr>
+<tr><td>Kick</td><td><code>$F2</code></td><td><code>$63</code></td><td>Shift 6, divisor 3: clock 1365 Hz, a low rumble; falls in 0.5 s</td></tr>
+<tr><td>Snare</td><td><code>$C1</code></td><td><code>$33</code></td><td>Shift 3, divisor 3: clock 10.9 kHz, a mid crack, fading in 0.2 s</td></tr>
+<tr><td>Hi-hat</td><td><code>$71</code></td><td><code>$11</code></td><td>Shift 1, divisor 1: clock 131 kHz, the highest hiss, fading in 0.1 s</td></tr>
+<tr><td>Explosion</td><td><code>$F7</code></td><td><code>$67</code></td><td>Shift 6, divisor 7: clock 585 Hz, and a 1.6 s fade</td></tr>
+<tr><td>Buzz</td><td><code>$F2</code></td><td><code>$2B</code></td><td>Shift 2, divisor 3, width bit set: clock 21.8 kHz repeating every 127 steps: a 172 Hz rasp</td></tr>
+</table>
+<p>The drum sounds make a useful rule of thumb. The higher the clock, the lighter the drum; the shorter the envelope, the sharper. Percussion in many a Game Boy song is these two bytes and nothing else.</p>
+
+<h3 id="8-example">A complete example</h3>
+<p>This program plays the five sounds in turn, a second each:</p>
+<pre><code><span class="comment">; noise_demo.asm - Chapter 8: the noise channel</span>
+<span class="comment">; Five sounds from one channel: a kick, a snare, a hi-hat, an explosion and a buzz.  Each is</span>
+<span class="comment">; just two bytes: the envelope (NR42) and the noise setting (NR43).</span>
+<span class="directive">SECTION</span> <span class="string">"NoiseVars"</span>, WRAM0
+<span class="label">wIndex</span>: <span class="directive">DS</span> <span class="number">1</span>
+
+<span class="directive">INCLUDE</span> <span class="string">"boot.inc"</span>
+
+    <span class="keyword">CALL</span> screen_init
+    <span class="keyword">CALL</span> sound_init
+    <span class="keyword">LD</span> B, <span class="number">2</span>
+    <span class="keyword">LD</span> C, <span class="number">2</span>
+    <span class="keyword">LD</span> HL, Title
+    <span class="keyword">CALL</span> show_text
+    <span class="keyword">XOR</span> A
+    <span class="keyword">LD</span> [wIndex], A
+    <span class="keyword">CALL</span> frame_init
+    <span class="keyword">EI</span>
+
+<span class="label">NextSound</span>:
+    <span class="keyword">LD</span> A, [wIndex]
+    <span class="keyword">ADD</span> A                       <span class="comment">; two bytes per sound</span>
+    <span class="keyword">LD</span> E, A
+    <span class="keyword">LD</span> D, <span class="number">0</span>
+    <span class="keyword">LD</span> HL, Sounds
+    <span class="keyword">ADD</span> HL, DE
+    <span class="keyword">LD</span> A, [HL+]
+    <span class="keyword">LDH</span> [rNR42], A
+    <span class="keyword">LD</span> A, [HL]
+    <span class="keyword">LDH</span> [rNR43], A
+    <span class="keyword">LD</span> A, NRX4_START
+    <span class="keyword">LDH</span> [rNR44], A              <span class="comment">; start it</span>
+
+    <span class="keyword">LD</span> A, [wIndex]              <span class="comment">; labels are eight bytes each</span>
+    <span class="keyword">ADD</span> A
+    <span class="keyword">ADD</span> A
+    <span class="keyword">ADD</span> A
+    <span class="keyword">LD</span> E, A
+    <span class="keyword">LD</span> D, <span class="number">0</span>
+    <span class="keyword">LD</span> HL, Labels
+    <span class="keyword">ADD</span> HL, DE
+    <span class="keyword">LD</span> B, <span class="number">2</span>
+    <span class="keyword">LD</span> C, <span class="number">5</span>
+    <span class="keyword">PUSH</span> HL
+    <span class="keyword">CALL</span> print_at
+    <span class="keyword">POP</span> HL
+    <span class="keyword">CALL</span> print_string
+
+    <span class="keyword">LD</span> B, <span class="number">60</span>
+<span class="label">.wait</span>:
+    <span class="keyword">CALL</span> wait_frame
+    <span class="keyword">DEC</span> B
+    <span class="keyword">JR</span> NZ, .wait
+
+    <span class="keyword">LD</span> A, [wIndex]
+    <span class="keyword">INC</span> A
+    <span class="keyword">CP</span> <span class="number">5</span>
+    <span class="keyword">JR</span> NZ, .store
+    <span class="keyword">XOR</span> A
+<span class="label">.store</span>:
+    <span class="keyword">LD</span> [wIndex], A
+    <span class="keyword">JR</span> NextSound
+
+<span class="label">Title</span>: <span class="directive">DB</span> <span class="string">"Noise channel"</span>, <span class="number">0</span>
+<span class="comment">; NR42 = start volume (high 4 bits) | direction (bit 3) | step time (low 3 bits)</span>
+<span class="comment">; NR43 = shift (high 4 bits) | width (bit 3: 1 = short, buzzy) | divisor (low 3 bits)</span>
+<span class="label">Sounds</span>:
+    <span class="directive">DB</span> <span class="number">$F2</span>, <span class="number">$63</span>                 <span class="comment">; kick:      low rumble that fades quickly</span>
+    <span class="directive">DB</span> <span class="number">$C1</span>, <span class="number">$33</span>                 <span class="comment">; snare:     mid-pitched crack</span>
+    <span class="directive">DB</span> <span class="number">$71</span>, <span class="number">$11</span>                 <span class="comment">; hi-hat:    high, very short tick</span>
+    <span class="directive">DB</span> <span class="number">$F7</span>, <span class="number">$67</span>                 <span class="comment">; explosion: low, long fade</span>
+    <span class="directive">DB</span> <span class="number">$F2</span>, <span class="number">$2B</span>                 <span class="comment">; buzz:      the short 7-bit pattern: a pitched rasp</span>
+<span class="label">Labels</span>: <span class="directive">DB</span> <span class="string">"kick   "</span>, <span class="number">0</span>, <span class="string">"snare  "</span>, <span class="number">0</span>, <span class="string">"hi-hat "</span>, <span class="number">0</span>, <span class="string">"explode"</span>, <span class="number">0</span>, <span class="string">"buzz   "</span>, <span class="number">0</span>
+
+<span class="directive">INCLUDE</span> <span class="string">"gfx.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"text.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"screen.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"frame.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"sound.asm"</span></code></pre>
+<p><strong>What you hear:</strong> a thud, a snap, a tick, a long rumble and a buzz you could hum along with. The tests measure what the chip produced: the higher the setting, the higher the sound's brightness (kick, then snare, then hat); the hat dies in under ten frames and the explosion goes on for more than twenty-five; the buzz repeats at its 127-step period, which can be seen as a strong correlation between the recording and itself 127 clock steps later, and the ordinary noises do not.</p>
+<p class="bold-text">Key fact: the noise channel has no pitch registers. Its character comes from the clock (shift and divisor), the width bit, and the envelope.</p>
+<h3 id="8-exercises">Try it yourself</h3>
+<ol>
+<li>Make a deeper kick: change <code>$63</code> to <code>$73</code>. Is the clock higher or lower?</li>
+<li>Make a &ldquo;laser noise&rdquo; sweep: play the buzz with several different <code>NR43</code> values, one every frame. What do you hear?</li>
+<li>Add an open hi-hat: the same <code>NR43</code> as the closed one but a longer envelope. Which byte of the table changes?</li>
+</ol>
+</section>
+<section>
+<h1 id="9-keeping-time">9. Keeping Time</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="9-in-high-level-languages">In High-Level Languages</h2>
+<p>Time is a service. You ask for a timer and the system calls you back, or you sleep and are woken, and in between the processor does other work:</p>
+<pre><code>setInterval(play_next_note, 500)        # every half second
+sleep(0.5)                              # or: wait half a second</code></pre>
+<p>Behind this is a clock chip and an operating system that keeps a list of timers. You never see how long a millisecond really is.</p>
+<h2 id="9-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>The Game Boy has no operating system and no timer queue. What it does have is the screen, which is redrawn 59.73 times a second without fail, and which says so: at the end of each picture the LCD raises the <em>VBlank interrupt</em>. This is the program's clock, and the one every game uses. One tick of it is a <strong>frame</strong>, about 16.7 milliseconds, and every duration in a Game Boy program, from a note to a level, is counted in frames.</p>
+<p>The sound hardware does not need this clock to <em>make</em> a note, but the program needs it to know <em>when</em> to start the next one. <code>frame.asm</code> is the whole mechanism:</p>
+<pre><code><span class="comment">; =============================================================</span>
+<span class="comment">; frame.asm - counting frames (Chapter 9)</span>
+<span class="comment">; =============================================================</span>
+<span class="comment">; The sound hardware plays a note without any help, but somebody has to</span>
+<span class="comment">; change the registers at the right moments.  The program's clock is the</span>
+<span class="comment">; screen: once per frame (about 60 times a second) the LCD enters VBlank</span>
+<span class="comment">; and raises an interrupt.  The handler below just notes that it happened.</span>
+<span class="comment">;</span>
+<span class="comment">;   frame_init    enable the VBlank interrupt (call before EI)</span>
+<span class="comment">;   wait_frame    sleep until the next frame has started</span>
+<span class="comment">;</span>
+<span class="comment">; wTicks counts frames since frame_init (and wraps at 256).</span>
+<span class="comment">; The LCD must be on, or no VBlank ever comes.</span>
+
+<span class="directive">SECTION</span> <span class="string">"FrameVectorTable"</span>, ROM0[<span class="number">$40</span>]
+    <span class="keyword">JP</span> VBlankHandler
+
+<span class="directive">SECTION</span> <span class="string">"FrameVars"</span>, WRAM0
+<span class="label">wVBlank</span>: <span class="directive">DS</span> <span class="number">1</span>                   <span class="comment">; set by the handler, cleared by wait_frame</span>
+<span class="label">wTicks</span>:  <span class="directive">DS</span> <span class="number">1</span>                   <span class="comment">; frames elapsed</span>
+
+<span class="directive">SECTION</span> <span class="string">"FrameRoutines"</span>, ROM0
+
+<span class="label">frame_init</span>:
+    <span class="keyword">XOR</span> A
+    <span class="keyword">LD</span> [wVBlank], A
+    <span class="keyword">LD</span> [wTicks], A
+    <span class="keyword">LDH</span> [rIF], A
+    <span class="keyword">LD</span> A, IEF_VBLANK
+    <span class="keyword">LDH</span> [rIE], A
+    <span class="keyword">RET</span>
+
+<span class="label">VBlankHandler</span>:
+    <span class="keyword">PUSH</span> AF
+    <span class="keyword">LD</span> A, <span class="number">1</span>
+    <span class="keyword">LD</span> [wVBlank], A
+    <span class="keyword">LD</span> A, [wTicks]
+    <span class="keyword">INC</span> A
+    <span class="keyword">LD</span> [wTicks], A
+    <span class="keyword">POP</span> AF
+    <span class="keyword">RETI</span>
+
+<span class="comment">; HALT stops the CPU until an interrupt arrives, which saves power and makes the timing exact.</span>
+<span class="label">wait_frame</span>:
+<span class="label">.sleep</span>:
+    <span class="keyword">HALT</span>
+    <span class="keyword">NOP</span>
+    <span class="keyword">LD</span> A, [wVBlank]
+    <span class="keyword">OR</span> A
+    <span class="keyword">JR</span> Z, .sleep
+    <span class="keyword">XOR</span> A
+    <span class="keyword">LD</span> [wVBlank], A
+    <span class="keyword">RET</span>
+
+<span class="comment">; --- end of frame.asm</span></code></pre>
+<p>When the interrupt arrives the processor stops what it is doing, saves its place, and runs the handler at <code>$40</code>, which sets a flag and counts. <code>wait_frame</code> does nothing but wait for the flag. The program turns this on with three things: <code>frame_init</code> enables the interrupt in <code>rIE</code>, the LCD must be on (without a picture there are no frames), and the program executes <code>EI</code> to allow interrupts at all. The <code>HALT</code> instruction is the important one: it stops the processor completely until the next interrupt, so the program does no work, wastes no power, and wakes at exactly the start of the frame. The <code>NOP</code> after it is a habit: on the SM83 the instruction after a <code>HALT</code> can misbehave in rare circumstances (the "halt bug"), so a harmless one goes there.</p>
+<p>A program that plays music is, from this point of view, one loop:</p>
+<pre><code>loop:
+    wait_frame        sleep until the frame begins
+    ...               do this frame's work: check the buttons, move things,
+    music_tick        update the music
+    jump loop</code></pre>
+
+<h3 id="9-tempo">Tempo in frames</h3>
+<p>If a beat is <em>n</em> frames, the tempo is</p>
+<pre><code>beats per minute = 59.73 * 60 / n</code></pre>
+<p>Thirty frames to a beat is 119.5 beats a minute, near enough 120. Twenty-four frames, the quarter note used by the song in Chapter 10, is 149 a minute. The usual lengths for a song are written in <code>notes.inc</code> as constants: <code>N16</code> is 6 frames, <code>N8</code> 12, <code>N4</code> 24, <code>N2</code> 48 and <code>N1</code> 96, so that a bar is exactly 96 frames.</p>
+<p>The whole frame is the finest division of time there is, which means a tempo is a whole number of frames. A real 140 beats a minute would be 25.6 frames; the program would have to play some beats at 25 and some at 26. The usual trick is a counter that adds the fraction each beat and carries into the whole number when it overflows, much as the <code>wCount</code> of the metronome below counts to its limit. Many games simply pick the nearest whole number, and the listener never knows.</p>
+
+<h3 id="9-example">A complete example</h3>
+<p>This metronome plays one click on every 30th frame, a high one on the first beat of each bar of four, and prints the beat number. Nothing else is happening, so it is the clearest picture of the loop. The click is a short square note whose length (Chapter 5) stops it before the next:</p>
+<pre><code><span class="comment">; timing_demo.asm - Chapter 9: keeping time with frames</span>
+<span class="comment">; A metronome.  One beat is 30 frames, so (at 60 frames a second) the tempo is 120 beats a</span>
+<span class="comment">; minute.  Every fourth beat is the high note.  The program does nothing but count frames.</span>
+<span class="directive">DEF</span> BEAT_FRAMES EQU <span class="number">30</span>
+
+<span class="directive">SECTION</span> <span class="string">"TimingVars"</span>, WRAM0
+<span class="label">wCount</span>: <span class="directive">DS</span> <span class="number">1</span>                    <span class="comment">; frames since the last beat</span>
+<span class="label">wBeat</span>:  <span class="directive">DS</span> <span class="number">1</span>                    <span class="comment">; which beat of the bar: 0 to 3</span>
+
+<span class="directive">INCLUDE</span> <span class="string">"boot.inc"</span>
+<span class="directive">INCLUDE</span> <span class="string">"notes.inc"</span>
+
+    <span class="keyword">CALL</span> screen_init
+    <span class="keyword">CALL</span> sound_init
+    <span class="keyword">LD</span> B, <span class="number">2</span>
+    <span class="keyword">LD</span> C, <span class="number">2</span>
+    <span class="keyword">LD</span> HL, Title
+    <span class="keyword">CALL</span> show_text
+    <span class="keyword">LD</span> B, <span class="number">2</span>
+    <span class="keyword">LD</span> C, <span class="number">5</span>
+    <span class="keyword">LD</span> HL, BeatLabel
+    <span class="keyword">CALL</span> show_text
+    <span class="keyword">XOR</span> A
+    <span class="keyword">LD</span> [wCount], A
+    <span class="keyword">LD</span> [wBeat], A
+    <span class="keyword">CALL</span> frame_init
+    <span class="keyword">EI</span>
+
+<span class="label">MainLoop</span>:
+    <span class="keyword">CALL</span> wait_frame             <span class="comment">; exactly one frame per time round the loop</span>
+    <span class="keyword">LD</span> A, [wCount]
+    <span class="keyword">OR</span> A
+    <span class="keyword">CALL</span> Z, beat                <span class="comment">; the first frame of every beat</span>
+    <span class="keyword">LD</span> A, [wCount]
+    <span class="keyword">INC</span> A
+    <span class="keyword">CP</span> BEAT_FRAMES
+    <span class="keyword">JR</span> NZ, .keep
+    <span class="keyword">XOR</span> A                       <span class="comment">; 30 frames have passed: back to the start of a beat</span>
+<span class="label">.keep</span>:
+    <span class="keyword">LD</span> [wCount], A
+    <span class="keyword">JR</span> MainLoop
+
+<span class="label">beat</span>:
+    <span class="keyword">LD</span> B, <span class="number">8</span>                     <span class="comment">; show the beat number</span>
+    <span class="keyword">LD</span> C, <span class="number">5</span>
+    <span class="keyword">CALL</span> print_at
+    <span class="keyword">LD</span> A, [wBeat]
+    <span class="keyword">ADD</span> <span class="string">'1'</span>
+    <span class="keyword">CALL</span> print_char
+
+    <span class="keyword">LD</span> A, [wBeat]               <span class="comment">; beat 1 gets the high note</span>
+    <span class="keyword">OR</span> A
+    <span class="keyword">LD</span> A, A4
+    <span class="keyword">JR</span> NZ, .note
+    <span class="keyword">LD</span> A, A5
+<span class="label">.note</span>:
+    <span class="keyword">CALL</span> note_freq
+    <span class="keyword">LD</span> A, DUTY_50 | <span class="number">48</span>          <span class="comment">; a short click: (64 - 48) / 256 s = 62 ms</span>
+    <span class="keyword">LDH</span> [rNR21], A
+    <span class="keyword">LD</span> A, <span class="number">$B0</span>
+    <span class="keyword">LDH</span> [rNR22], A
+    <span class="keyword">LD</span> A, E
+    <span class="keyword">LDH</span> [rNR23], A
+    <span class="keyword">LD</span> A, D
+    <span class="keyword">OR</span> NRX4_START | NRX4_LENGTH
+    <span class="keyword">LDH</span> [rNR24], A
+
+    <span class="keyword">LD</span> A, [wBeat]
+    <span class="keyword">INC</span> A
+    <span class="keyword">AND</span> <span class="number">3</span>                       <span class="comment">; 0, 1, 2, 3, 0, ...</span>
+    <span class="keyword">LD</span> [wBeat], A
+    <span class="keyword">RET</span>
+
+<span class="label">Title</span>: <span class="directive">DB</span> <span class="string">"Metronome  120 bpm"</span>, <span class="number">0</span>
+<span class="label">BeatLabel</span>: <span class="directive">DB</span> <span class="string">"Beat"</span>, <span class="number">0</span>
+
+<span class="directive">INCLUDE</span> <span class="string">"gfx.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"text.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"screen.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"frame.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"sound.asm"</span></code></pre>
+<p><strong>What you hear:</strong> a steady click, a higher one every fourth beat. The tests record the sound and find the start of every click: they are thirty frames apart, to within half a frame, for the whole recording, the accented beats are an octave above the others (880 and 440 Hz), and the frame counter <code>wTicks</code> goes up by exactly the number of frames that have passed.</p>
+<p class="bold-text">Key fact: the screen is the Game Boy's clock. Sleep until the frame with <code>wait_frame</code>, count frames to measure time, and let the sound hardware keep the note going in between.</p>
+<h3 id="9-exercises">Try it yourself</h3>
+<ol>
+<li>Change <code>BEAT_FRAMES</code> to 20. What is the tempo now? Change it to 15?</li>
+<li>Make the second and fourth beats quieter. Where is the envelope byte written, and what value would you use?</li>
+<li>Add a second counter so that the metronome also shows which bar it is on. Where does it go up?</li>
+</ol>
+</section>
+
+<section>
+<h1 id="10-a-music-engine">10. A Music Engine</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="10-in-high-level-languages">In High-Level Languages</h2>
+<p>Music is a file: MIDI, or tracker module, or a recording. A player library reads it, schedules every note, mixes the instruments and plays the result, and you call one function:</p>
+<pre><code>song = load("tune.mid")
+song.play(loop = True)</code></pre>
+<p>Behind that call sits a <em>sequencer</em>, a program whose only job is to walk through a list of notes at the right moments and tell the instruments what to do.</p>
+<h2 id="10-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>The Game Boy needs the same thing, and it is a small enough program to read in full. It is a sequencer for four channels, one stream of events per channel, driven by the frame clock of Chapter 9. Each event says what to play and for how many frames. Once per frame the engine takes one frame off each channel's wait, and when a wait reaches zero it reads the next event.</p>
+
+<h3 id="10-the-data">The shape of a song</h3>
+<p>A song is a header and four streams. The header holds the address of each channel's stream (0 means the channel is not used), then four <em>instrument</em> bytes: the value written to the envelope register of channels 1 and 2, the volume register of channel 3, and one more for channel 4 (which is not used: each drum carries its own). A stream is pairs of bytes: <strong>a note and a length in frames</strong>. Two special notes exist: <code>REST</code> (silence for the given time) and <code>SONG_LOOP</code> (go back to the start of this stream). On channel 4 the &ldquo;note&rdquo; is a drum number:</p>
+<pre><code>Song:
+    DW LeadStream, ArpStream, BassStream, DrumStream
+    DB $A2, $62, WAVE_FULL, 0         ; instruments
+
+LeadStream:
+    DB A4, N8, C5, N8, E5, N4, ...    ; note, length; note, length ...
+    DB SONG_LOOP</code></pre>
+<p>The complete engine follows. The main entry points are <code>music_play</code> (set the header up), <code>music_tick</code> (one frame of music) and <code>sfx_hold</code> (keep the music off channel 1 for a moment):</p>
+<pre><code><span class="comment">; =============================================================</span>
+<span class="comment">; music.asm - a small music engine (Chapter 10)</span>
+<span class="comment">; =============================================================</span>
+<span class="comment">; A song is four streams of events, one per channel.  Once per frame</span>
+<span class="comment">; the engine counts each channel's wait down; when it reaches zero it</span>
+<span class="comment">; reads the next event: a note (or rest) and how many frames it lasts.</span>
+<span class="comment">;</span>
+<span class="comment">;   music_play    HL = song: start playing it from the beginning</span>
+<span class="comment">;   music_stop    silence the music</span>
+<span class="comment">;   music_tick    call once per frame, straight after wait_frame</span>
+<span class="comment">;   sfx_hold      A = frames: keep the music off channel 1 for a while (a sound effect is using it)</span>
+<span class="comment">;</span>
+<span class="comment">; A song begins with four stream addresses (channel 1 to 4; 0 = unused),</span>
+<span class="comment">; followed by four instrument bytes: the value written to NRx2 for</span>
+<span class="comment">; channels 1, 2 and 4, and to NR32 for channel 3.  Each stream is</span>
+<span class="comment">; pairs of bytes:  note, frames.   A rest is REST; SONG_LOOP goes back</span>
+<span class="comment">; to the start.  On channel 4 the "note" picks a drum from DrumTable.</span>
+
+<span class="directive">DEF</span> CHANNELS EQU <span class="number">4</span>
+
+<span class="directive">SECTION</span> <span class="string">"MusicVars"</span>, WRAM0
+<span class="label">wMusicOn</span>:    <span class="directive">DS</span> <span class="number">1</span>
+<span class="label">wSfxTimer</span>:   <span class="directive">DS</span> <span class="number">1</span>                   <span class="comment">; frames left before the music may use channel 1 again</span>
+<span class="label">wDuration</span>:   <span class="directive">DS</span> <span class="number">1</span>                   <span class="comment">; scratch</span>
+<span class="label">wChanWait</span>:   <span class="directive">DS</span> CHANNELS            <span class="comment">; frames left in the current event, per channel</span>
+<span class="label">wChanPtr</span>:    <span class="directive">DS</span> CHANNELS * <span class="number">2</span>        <span class="comment">; where each channel is reading</span>
+<span class="label">wChanStart</span>:  <span class="directive">DS</span> CHANNELS * <span class="number">2</span>        <span class="comment">; where each channel began (for looping)</span>
+<span class="label">wChanInstr</span>:  <span class="directive">DS</span> CHANNELS            <span class="comment">; the instrument byte of each channel</span>
+
+<span class="directive">SECTION</span> <span class="string">"MusicRoutines"</span>, ROM0
+
+<span class="comment">; --- Begin a song: copy the header into RAM and make every channel read its first event next tick ---</span>
+<span class="label">music_play</span>:
+    <span class="keyword">LD</span> B, <span class="number">0</span>
+<span class="label">.channel</span>:
+    <span class="keyword">LD</span> A, [HL+]
+    <span class="keyword">LD</span> E, A
+    <span class="keyword">LD</span> A, [HL+]
+    <span class="keyword">LD</span> D, A                     <span class="comment">; DE = this channel's stream</span>
+    <span class="keyword">OR</span> E
+    <span class="keyword">JR</span> NZ, .used
+    <span class="keyword">LD</span> DE, EmptyStream          <span class="comment">; an unused channel just rests</span>
+<span class="label">.used</span>:
+    <span class="keyword">PUSH</span> HL
+    <span class="keyword">LD</span> A, B
+    <span class="keyword">ADD</span> A
+    <span class="keyword">LD</span> C, A                     <span class="comment">; C = 2 * channel</span>
+    <span class="keyword">LD</span> HL, wChanPtr
+    <span class="keyword">CALL</span> .store
+    <span class="keyword">LD</span> HL, wChanStart
+    <span class="keyword">CALL</span> .store
+    <span class="keyword">POP</span> HL
+    <span class="keyword">INC</span> B
+    <span class="keyword">LD</span> A, B
+    <span class="keyword">CP</span> CHANNELS
+    <span class="keyword">JR</span> NZ, .channel
+    <span class="keyword">LD</span> B, <span class="number">0</span>
+    <span class="keyword">LD</span> DE, wChanInstr
+<span class="label">.instr</span>:
+    <span class="keyword">LD</span> A, [HL+]
+    <span class="keyword">LD</span> [DE], A
+    <span class="keyword">INC</span> DE
+    <span class="keyword">INC</span> B
+    <span class="keyword">LD</span> A, B
+    <span class="keyword">CP</span> CHANNELS
+    <span class="keyword">JR</span> NZ, .instr
+    <span class="keyword">XOR</span> A
+    <span class="keyword">LD</span> [wSfxTimer], A
+    <span class="keyword">LD</span> HL, wChanWait
+    <span class="keyword">LD</span> B, CHANNELS
+<span class="label">.clear</span>:
+    <span class="keyword">LD</span> [HL+], A
+    <span class="keyword">DEC</span> B
+    <span class="keyword">JR</span> NZ, .clear
+    <span class="keyword">LD</span> A, <span class="number">$40</span>
+    <span class="keyword">LDH</span> [rNR11], A              <span class="comment">; channel 1 plays a 25% pulse...</span>
+    <span class="keyword">LD</span> A, <span class="number">$80</span>
+    <span class="keyword">LDH</span> [rNR21], A              <span class="comment">; ...and channel 2 a 50% pulse</span>
+    <span class="keyword">LD</span> A, WAVE_ON
+    <span class="keyword">LDH</span> [rNR30], A
+    <span class="keyword">LD</span> A, <span class="number">1</span>
+    <span class="keyword">LD</span> [wMusicOn], A
+    <span class="keyword">RET</span>
+<span class="label">.store</span>:                         <span class="comment">; [HL + C] = DE (two bytes)</span>
+    <span class="keyword">LD</span> A, L
+    <span class="keyword">ADD</span> C
+    <span class="keyword">LD</span> L, A
+    <span class="keyword">JR</span> NC, .nocarry
+    <span class="keyword">INC</span> H
+<span class="label">.nocarry</span>:
+    <span class="keyword">LD</span> A, E
+    <span class="keyword">LD</span> [HL+], A
+    <span class="keyword">LD</span> [HL], D
+    <span class="keyword">RET</span>
+
+<span class="label">music_stop</span>:
+    <span class="keyword">XOR</span> A
+    <span class="keyword">LD</span> [wMusicOn], A
+    <span class="keyword">LDH</span> [rNR12], A
+    <span class="keyword">LDH</span> [rNR22], A
+    <span class="keyword">LDH</span> [rNR32], A
+    <span class="keyword">LDH</span> [rNR42], A
+    <span class="keyword">RET</span>
+
+<span class="label">sfx_hold</span>:
+    <span class="keyword">LD</span> [wSfxTimer], A
+    <span class="keyword">RET</span>
+
+<span class="comment">; --- One frame of music ---</span>
+<span class="label">music_tick</span>:
+    <span class="keyword">LD</span> A, [wMusicOn]
+    <span class="keyword">OR</span> A
+    <span class="keyword">RET</span> Z
+    <span class="keyword">LD</span> A, [wSfxTimer]
+    <span class="keyword">OR</span> A
+    <span class="keyword">JR</span> Z, .go
+    <span class="keyword">DEC</span> A
+    <span class="keyword">LD</span> [wSfxTimer], A
+<span class="label">.go</span>:
+    <span class="keyword">LD</span> B, <span class="number">0</span>
+<span class="label">.channel</span>:
+    <span class="keyword">CALL</span> channel_tick
+    <span class="keyword">INC</span> B
+    <span class="keyword">LD</span> A, B
+    <span class="keyword">CP</span> CHANNELS
+    <span class="keyword">JR</span> NZ, .channel
+    <span class="keyword">RET</span>
+
+<span class="comment">; --- One frame for channel B ---</span>
+<span class="label">channel_tick</span>:
+    <span class="keyword">LD</span> HL, wChanWait
+    <span class="keyword">LD</span> E, B
+    <span class="keyword">LD</span> D, <span class="number">0</span>
+    <span class="keyword">ADD</span> HL, DE
+    <span class="keyword">LD</span> A, [HL]
+    <span class="keyword">OR</span> A
+    <span class="keyword">JR</span> Z, .fetch                <span class="comment">; nothing left to wait for: time for the next event</span>
+    <span class="keyword">DEC</span> A
+    <span class="keyword">LD</span> [HL], A
+    <span class="keyword">RET</span> NZ                      <span class="comment">; still waiting</span>
+<span class="label">.fetch</span>:
+    <span class="keyword">CALL</span> get_ptr                <span class="comment">; HL = the next byte of this channel's stream</span>
+    <span class="keyword">LD</span> A, [HL+]
+    <span class="keyword">CP</span> SONG_LOOP
+    <span class="keyword">JR</span> NZ, .event
+    <span class="keyword">CALL</span> rewind                 <span class="comment">; end of the stream: start again from the top</span>
+    <span class="keyword">CALL</span> get_ptr
+    <span class="keyword">LD</span> A, [HL+]
+<span class="label">.event</span>:
+    <span class="keyword">LD</span> C, A                     <span class="comment">; C = note (or REST)</span>
+    <span class="keyword">LD</span> A, [HL+]
+    <span class="keyword">LD</span> [wDuration], A           <span class="comment">; the event's length in frames</span>
+    <span class="keyword">CALL</span> put_ptr                <span class="comment">; remember where we have got to</span>
+    <span class="keyword">LD</span> HL, wChanWait
+    <span class="keyword">LD</span> E, B
+    <span class="keyword">LD</span> D, <span class="number">0</span>
+    <span class="keyword">ADD</span> HL, DE
+    <span class="keyword">LD</span> A, [wDuration]
+    <span class="keyword">LD</span> [HL], A
+    <span class="keyword">LD</span> A, C
+    <span class="keyword">CP</span> REST
+    <span class="keyword">JR</span> Z, silence               <span class="comment">; a rest: stop whatever is sounding on this channel</span>
+    <span class="keyword">LD</span> A, B
+    <span class="keyword">OR</span> A
+    <span class="keyword">JR</span> NZ, play_event
+    <span class="keyword">LD</span> A, [wSfxTimer]           <span class="comment">; channel 1 belongs to a sound effect right now</span>
+    <span class="keyword">OR</span> A
+    <span class="keyword">RET</span> NZ
+    <span class="keyword">XOR</span> A
+    <span class="keyword">LDH</span> [rNR10], A              <span class="comment">; the effect may have left a sweep or another duty behind: put them back</span>
+    <span class="keyword">LD</span> A, <span class="number">$40</span>
+    <span class="keyword">LDH</span> [rNR11], A
+
+<span class="comment">; --- Start note C on channel B ---</span>
+<span class="label">play_event</span>:
+    <span class="keyword">LD</span> A, B
+    <span class="keyword">CP</span> <span class="number">3</span>
+    <span class="keyword">JR</span> Z, .drum
+    <span class="keyword">LD</span> A, B
+    <span class="keyword">CP</span> <span class="number">2</span>
+    <span class="keyword">LD</span> A, C
+    <span class="keyword">JR</span> NZ, .lookup
+    <span class="keyword">ADD</span> <span class="number">12</span>                      <span class="comment">; the wave channel sounds an octave lower, so ask for one higher</span>
+<span class="label">.lookup</span>:
+    <span class="keyword">CALL</span> note_freq              <span class="comment">; DE = pitch value</span>
+    <span class="keyword">CALL</span> nrx2_address           <span class="comment">; C = this channel's NRx2 register (the note is done with)</span>
+    <span class="keyword">LD</span> HL, wChanInstr
+    <span class="keyword">LD</span> A, B
+    <span class="keyword">ADD</span> L
+    <span class="keyword">LD</span> L, A
+    <span class="keyword">JR</span> NC, .nocarry
+    <span class="keyword">INC</span> H
+<span class="label">.nocarry</span>:
+    <span class="keyword">LD</span> A, [HL]                  <span class="comment">; the channel's instrument</span>
+    <span class="keyword">LDH</span> [C], A                  <span class="comment">; NRx2 (or NR32)</span>
+    <span class="keyword">INC</span> C
+    <span class="keyword">LD</span> A, E
+    <span class="keyword">LDH</span> [C], A                  <span class="comment">; pitch, low 8 bits</span>
+    <span class="keyword">INC</span> C
+    <span class="keyword">LD</span> A, D
+    <span class="keyword">OR</span> NRX4_START
+    <span class="keyword">LDH</span> [C], A                  <span class="comment">; pitch high bits + start</span>
+    <span class="keyword">RET</span>
+<span class="label">.drum</span>:
+    <span class="keyword">LD</span> A, C
+    <span class="keyword">ADD</span> A                       <span class="comment">; two bytes per drum</span>
+    <span class="keyword">LD</span> E, A
+    <span class="keyword">LD</span> D, <span class="number">0</span>
+    <span class="keyword">LD</span> HL, DrumTable
+    <span class="keyword">ADD</span> HL, DE
+    <span class="keyword">LD</span> A, [HL+]
+    <span class="keyword">LDH</span> [rNR42], A              <span class="comment">; the drum's envelope</span>
+    <span class="keyword">LD</span> A, [HL]
+    <span class="keyword">LDH</span> [rNR43], A              <span class="comment">; the drum's noise setting</span>
+    <span class="keyword">LD</span> A, NRX4_START
+    <span class="keyword">LDH</span> [rNR44], A
+    <span class="keyword">RET</span>
+
+<span class="comment">; --- Silence channel B.  A playing channel reads its envelope register only when it is started, so</span>
+<span class="comment">; the way to a quiet note without a click is to write volume 0 ($08: output still on) and start the</span>
+<span class="comment">; channel again.  (Writing 0 would switch the output off, which can click on a real console.)</span>
+<span class="comment">; Channel 3 has no envelope: its volume register is muted instead, and that takes effect at once. ---</span>
+<span class="label">silence</span>:
+    <span class="keyword">LD</span> A, B
+    <span class="keyword">OR</span> A
+    <span class="keyword">JR</span> NZ, .go
+    <span class="keyword">LD</span> A, [wSfxTimer]           <span class="comment">; channel 1 may be playing a sound effect: leave it alone</span>
+    <span class="keyword">OR</span> A
+    <span class="keyword">RET</span> NZ
+<span class="label">.go</span>:
+    <span class="keyword">CALL</span> nrx2_address           <span class="comment">; C = the low byte of this channel's NRx2 address</span>
+    <span class="keyword">LD</span> A, B
+    <span class="keyword">CP</span> <span class="number">2</span>
+    <span class="keyword">LD</span> A, ENV_UP                <span class="comment">; volume 0, rising, no step time: silent, output still on</span>
+    <span class="keyword">JR</span> NZ, .write
+    <span class="keyword">XOR</span> A                       <span class="comment">; channel 3: volume 0 (muted)</span>
+    <span class="keyword">LDH</span> [C], A
+    <span class="keyword">RET</span>
+<span class="label">.write</span>:
+    <span class="keyword">LDH</span> [C], A
+    <span class="keyword">INC</span> C
+    <span class="keyword">INC</span> C                       <span class="comment">; NRx4: the start register is two on from NRx2</span>
+    <span class="keyword">LD</span> A, NRX4_START
+    <span class="keyword">LDH</span> [C], A                  <span class="comment">; start again, at volume 0</span>
+    <span class="keyword">RET</span>
+
+<span class="comment">; --- C = $12 + 5 * channel B: the NRx2 registers are $FF12, $FF17, $FF1C and $FF21 ---</span>
+<span class="label">nrx2_address</span>:
+    <span class="keyword">LD</span> A, B
+    <span class="keyword">ADD</span> A
+    <span class="keyword">ADD</span> A
+    <span class="keyword">ADD</span> B
+    <span class="keyword">ADD</span> <span class="number">$12</span>
+    <span class="keyword">LD</span> C, A
+    <span class="keyword">RET</span>
+
+<span class="comment">; --- HL = the stream pointer of channel B ---</span>
+<span class="label">get_ptr</span>:
+    <span class="keyword">LD</span> A, B
+    <span class="keyword">ADD</span> A
+    <span class="keyword">LD</span> E, A
+    <span class="keyword">LD</span> D, <span class="number">0</span>
+    <span class="keyword">LD</span> HL, wChanPtr
+    <span class="keyword">ADD</span> HL, DE
+    <span class="keyword">LD</span> A, [HL+]
+    <span class="keyword">LD</span> H, [HL]
+    <span class="keyword">LD</span> L, A
+    <span class="keyword">RET</span>
+
+<span class="comment">; --- Store HL as the stream pointer of channel B ---</span>
+<span class="label">put_ptr</span>:
+    <span class="keyword">LD</span> A, B
+    <span class="keyword">ADD</span> A
+    <span class="keyword">LD</span> E, A
+    <span class="keyword">LD</span> D, <span class="number">0</span>
+    <span class="keyword">PUSH</span> HL
+    <span class="keyword">LD</span> HL, wChanPtr
+    <span class="keyword">ADD</span> HL, DE
+    <span class="keyword">POP</span> DE
+    <span class="keyword">LD</span> A, E
+    <span class="keyword">LD</span> [HL+], A
+    <span class="keyword">LD</span> [HL], D
+    <span class="keyword">RET</span>
+
+<span class="comment">; --- Copy channel B's start pointer into its stream pointer ---</span>
+<span class="label">rewind</span>:
+    <span class="keyword">LD</span> A, B
+    <span class="keyword">ADD</span> A
+    <span class="keyword">LD</span> E, A
+    <span class="keyword">LD</span> D, <span class="number">0</span>
+    <span class="keyword">LD</span> HL, wChanStart
+    <span class="keyword">ADD</span> HL, DE
+    <span class="keyword">LD</span> A, [HL+]
+    <span class="keyword">LD</span> C, A
+    <span class="keyword">LD</span> A, [HL]
+    <span class="keyword">LD</span> HL, wChanPtr
+    <span class="keyword">ADD</span> HL, DE
+    <span class="keyword">LD</span> [HL], C
+    <span class="keyword">INC</span> HL
+    <span class="keyword">LD</span> [HL], A
+    <span class="keyword">RET</span>
+
+<span class="comment">; --- Three drums: NR42 (envelope) and NR43 (noise setting) for each ---</span>
+<span class="label">DrumTable</span>:
+    <span class="directive">DB</span> <span class="number">$F2</span>, <span class="number">$63</span>                 <span class="comment">; 0: kick     - low, short boom</span>
+    <span class="directive">DB</span> <span class="number">$C1</span>, <span class="number">$33</span>                 <span class="comment">; 1: snare    - mid-pitched crack</span>
+    <span class="directive">DB</span> <span class="number">$71</span>, <span class="number">$11</span>                 <span class="comment">; 2: hi-hat   - high, very short tick</span>
+
+<span class="label">EmptyStream</span>:
+    <span class="directive">DB</span> REST, <span class="number">255</span>, SONG_LOOP
+
+<span class="comment">; --- end of music.asm</span></code></pre>
+
+<h3 id="10-how-it-works">How it works</h3>
+<p><code>music_play</code> copies the four stream addresses into RAM twice: once as <em>where the channel is reading now</em> (<code>wChanPtr</code>), once as <em>where it began</em> (<code>wChanStart</code>, for looping), and the four instrument bytes beside them. It zeroes every channel's wait, so that on the first tick each channel reads its first event at once, and gives channels 1 and 2 the duty cycles they use (25% and 50%).</p>
+<p><code>music_tick</code> loops over the four channels and runs <code>channel_tick</code> for each. That does three things. If the wait is not yet zero it takes one off and returns. If it is, it reads the next event: the note, then the length, stored as the new wait. And it plays the note. Reading the event is a pointer walk: <code>get_ptr</code> loads the channel's pointer, two bytes are read and <code>put_ptr</code> saves it. If the first byte is <code>SONG_LOOP</code>, <code>rewind</code> copies the start address back first.</p>
+<p><code>play_event</code> is the only part that touches the sound hardware, and it needs very little because the four channels' registers are so alike. The envelope register of channel <em>c</em> (0 to 3) is at <code>$FF12 + 5 &times; c</code>, and the pitch registers follow it, so one routine reaches all three square-or-wave channels: look up the pitch, write the instrument byte to the envelope register, then the two pitch bytes with the start bit. (Channel 3 plays an octave low, so the engine asks for a note twelve semitones higher, as in Chapter 7.) Channel 4 takes a drum from <code>DrumTable</code>: two bytes, the envelope and the noise setting of Chapter 8.</p>
+<p>A rest calls <code>silence</code>, which writes <code>$08</code> to the channel's envelope register (volume 0, output still on) and starts the channel again, as Chapter 4 explains, or sets the volume register of channel 3 to zero, so a steady note ends cleanly at the rest. An unused channel is given a stream that is one very long rest.</p>
+
+<h3 id="10-where-to-tick">Where to call it</h3>
+<p>Here <code>music_tick</code> is called from the main loop, straight after <code>wait_frame</code>. Many drivers instead call it from the VBlank handler itself. Both are common. The main-loop way is simpler and keeps the handler short, but it has one weakness: if a frame's other work ever runs past the end of the frame, the tick is late and the music stutters. Calling it from the handler makes the music immune to that, at the price of running the whole engine with the interrupt busy, which must be finished before the next one is due. A game with heavy per-frame work should use the handler; this book's programs have none.</p>
+
+<h3 id="10-sfx">Sound effects over music</h3>
+<p>A game has both music and effects, and there are only four channels. The usual arrangement is that an effect borrows one: the music engine is told to leave channel 1 alone for a few frames, and the effect plays there. <code>sfx_hold</code> does exactly that, with a countdown in <code>wSfxTimer</code> that the engine checks before touching channel 1. The music carries on in the other three, and goes back to channel 1 at its next note, resetting the sweep and the duty cycle that the effect may have left behind.</p>
+
+<h3 id="10-example">A complete example</h3>
+<p>This song is four bars of A minor, F, C and G, 384 frames long, repeated for ever: a lead melody on channel 1, an arpeggio on channel 2, a bass line on channel 3 using a triangle wave, and drums on channel 4. Pressing A fires the jump effect from Chapter 6 on channel 1, holding the music off it for 20 frames:</p>
+<pre><code><span class="comment">; music_demo.asm - Chapter 10: a four-channel song</span>
+<span class="comment">; A looping eight-second song in A minor: lead (channel 1), arpeggio (channel 2), bass</span>
+<span class="comment">; (channel 3) and drums (channel 4).  Press A to fire a sound effect on channel 1 while</span>
+<span class="comment">; the other three keep playing.</span>
+<span class="directive">SECTION</span> <span class="string">"MusicDemoVars"</span>, WRAM0
+
+<span class="directive">INCLUDE</span> <span class="string">"boot.inc"</span>
+<span class="directive">INCLUDE</span> <span class="string">"notes.inc"</span>
+
+    <span class="keyword">CALL</span> screen_init
+    <span class="keyword">CALL</span> sound_init
+    <span class="keyword">LD</span> B, <span class="number">2</span>
+    <span class="keyword">LD</span> C, <span class="number">2</span>
+    <span class="keyword">LD</span> HL, Title
+    <span class="keyword">CALL</span> show_text
+    <span class="keyword">LD</span> B, <span class="number">2</span>
+    <span class="keyword">LD</span> C, <span class="number">4</span>
+    <span class="keyword">LD</span> HL, Help
+    <span class="keyword">CALL</span> show_text
+    <span class="keyword">LD</span> HL, BassWave
+    <span class="keyword">CALL</span> wave_load              <span class="comment">; the bass is a triangle wave</span>
+    <span class="keyword">XOR</span> A
+    <span class="keyword">LD</span> [wJoy], A
+    <span class="keyword">CALL</span> frame_init
+    <span class="keyword">LD</span> HL, Song
+    <span class="keyword">CALL</span> music_play
+    <span class="keyword">EI</span>
+
+<span class="label">MainLoop</span>:
+    <span class="keyword">CALL</span> wait_frame
+    <span class="keyword">CALL</span> music_tick             <span class="comment">; one frame of music</span>
+    <span class="keyword">CALL</span> read_joypad
+    <span class="keyword">LD</span> A, [wJoyNew]
+    <span class="keyword">AND</span> PADF_A
+    <span class="keyword">CALL</span> NZ, jump_effect
+    <span class="keyword">JR</span> MainLoop
+
+<span class="comment">; --- A rising "jump" on channel 1, which the music leaves alone for 20 frames ---</span>
+<span class="label">jump_effect</span>:
+    <span class="keyword">LD</span> A, <span class="number">20</span>
+    <span class="keyword">CALL</span> sfx_hold
+    <span class="keyword">LD</span> A, <span class="number">$16</span>
+    <span class="keyword">LDH</span> [rNR10], A              <span class="comment">; sweep up</span>
+    <span class="keyword">LD</span> A, DUTY_50
+    <span class="keyword">LDH</span> [rNR11], A
+    <span class="keyword">LD</span> A, <span class="number">$F3</span>
+    <span class="keyword">LDH</span> [rNR12], A
+    <span class="keyword">LD</span> DE, <span class="number">$500</span>
+    <span class="keyword">JP</span> play_ch1
+
+<span class="label">Title</span>: <span class="directive">DB</span> <span class="string">"Four channels"</span>, <span class="number">0</span>
+<span class="label">Help</span>:  <span class="directive">DB</span> <span class="string">"A: sound effect"</span>, <span class="number">0</span>
+
+<span class="comment">; --- The song: four stream addresses, then four instrument bytes ---</span>
+<span class="label">Song</span>:
+    <span class="directive">DW</span> LeadStream, ArpStream, BassStream, DrumStream
+    <span class="directive">DB</span> <span class="number">$A2</span>                      <span class="comment">; channel 1: NR12 (start volume 10, fading)</span>
+    <span class="directive">DB</span> <span class="number">$62</span>                      <span class="comment">; channel 2: NR22 (start volume 6, fading)</span>
+    <span class="directive">DB</span> WAVE_FULL                <span class="comment">; channel 3: NR32 (full volume)</span>
+    <span class="directive">DB</span> <span class="number">0</span>                        <span class="comment">; channel 4: not used (each drum has its own envelope)</span>
+
+<span class="comment">; Four bars of 96 frames: A minor, F, C, G.</span>
+<span class="label">LeadStream</span>:
+    <span class="directive">DB</span> A4, N8, C5, N8, E5, N4, C5, N8, A4, N8, E4, N4
+    <span class="directive">DB</span> F4, N8, A4, N8, C5, N4, A4, N8, F4, N8, C4, N4
+    <span class="directive">DB</span> C5, N8, E5, N8, G5, N4, E5, N8, C5, N8, G4, N4
+    <span class="directive">DB</span> G4, N8, B4, N8, D5, N4, B4, N8, G4, N8, D4, N4
+    <span class="directive">DB</span> SONG_LOOP
+
+<span class="label">ArpStream</span>:
+    <span class="directive">REPT</span> <span class="number">4</span>
+    <span class="directive">DB</span> A3, N16, C4, N16, E4, N16, C4, N16
+    <span class="directive">ENDR</span>
+    <span class="directive">REPT</span> <span class="number">4</span>
+    <span class="directive">DB</span> F3, N16, A3, N16, C4, N16, A3, N16
+    <span class="directive">ENDR</span>
+    <span class="directive">REPT</span> <span class="number">4</span>
+    <span class="directive">DB</span> C4, N16, E4, N16, G4, N16, E4, N16
+    <span class="directive">ENDR</span>
+    <span class="directive">REPT</span> <span class="number">4</span>
+    <span class="directive">DB</span> G3, N16, B3, N16, D4, N16, B3, N16
+    <span class="directive">ENDR</span>
+    <span class="directive">DB</span> SONG_LOOP
+
+<span class="label">BassStream</span>:
+    <span class="directive">DB</span> A2, N4, A2, N4, E3, N4, A2, N4
+    <span class="directive">DB</span> F2, N4, F2, N4, C3, N4, F2, N4
+    <span class="directive">DB</span> C3, N4, C3, N4, G3, N4, C3, N4
+    <span class="directive">DB</span> G2, N4, G2, N4, D3, N4, G2, N4
+    <span class="directive">DB</span> SONG_LOOP
+
+<span class="label">DrumStream</span>:
+    <span class="directive">REPT</span> <span class="number">4</span>
+    <span class="directive">DB</span> DRUM_KICK, N8, DRUM_HAT, N8, DRUM_SNARE, N8, DRUM_HAT, N8
+    <span class="directive">DB</span> DRUM_KICK, N8, DRUM_HAT, N8, DRUM_SNARE, N8, DRUM_HAT, N8
+    <span class="directive">ENDR</span>
+    <span class="directive">DB</span> SONG_LOOP
+
+<span class="comment">; A triangle: the sample values rise 0 to 15 and fall back (two samples in each byte)</span>
+<span class="label">BassWave</span>:
+    <span class="directive">DB</span> <span class="number">$01</span>, <span class="number">$23</span>, <span class="number">$45</span>, <span class="number">$67</span>, <span class="number">$89</span>, <span class="number">$AB</span>, <span class="number">$CD</span>, <span class="number">$EF</span>, <span class="number">$FE</span>, <span class="number">$DC</span>, <span class="number">$BA</span>, <span class="number">$98</span>, <span class="number">$76</span>, <span class="number">$54</span>, <span class="number">$32</span>, <span class="number">$10</span>
+
+<span class="directive">INCLUDE</span> <span class="string">"gfx.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"text.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"screen.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"frame.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"sound.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"joypad.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"music.asm"</span></code></pre>
+<p>The arpeggio and drum streams use the assembler's <code>REPT</code> to repeat the same pattern, so a bar of sixteen notes is written as four. <code>REPT</code> is a copy-and-paste done at assembly time and costs nothing when the program runs.</p>
+<p><strong>What you hear:</strong> a bouncing four-channel tune with drums that begins again after eight seconds, and a rising &ldquo;boing&rdquo; over the top of it when you press A, after which the lead comes back. The tests listen to each channel on its own (by writing <code>$11</code>, <code>$22</code>, <code>$44</code> or <code>$88</code> to <code>rNR51</code>, as in Chapter 1) and check that the lead, the arpeggio, the bass and the drums play the right pitches (or, for the drums, the right sort of sound) at the right frames, that the lead comes back to its first event every 384 frames, and that an effect on channel 1 leaves channels 2 to 4 undisturbed and the lead's sweep and duty restored afterwards. A second, smaller song tests the engine's rests, an empty channel and its looping.</p>
+<p class="bold-text">Key fact: a music engine is a loop over the channels that counts frames and, when a count runs out, reads a note and writes the same few registers you used by hand in the earlier chapters.</p>
+<h3 id="10-exercises">Try it yourself</h3>
+<ol>
+<li>Write a second bar for the lead on channel 1 using notes of your choice. What must you do to the other three streams so that they stay in step?</li>
+<li>Add a rest to the drum stream, for instance on the third eighth note. Which line changes?</li>
+<li>Extend the engine with a fifth event type, a &ldquo;set duty&rdquo; command in the stream. Where would the new case go in <code>channel_tick</code>?</li>
+</ol>
+</section>
+
+<section>
+<h1 id="11-input-and-a-playable-instrument">11. Input &amp; a Playable Instrument</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="11-in-high-level-languages">In High-Level Languages</h2>
+<p>Input arrives as events: <code>onKeyDown(key)</code> is called when a key goes down and the program plays a note in the handler. The operating system has already decoded the electrical signal into a key code and queued it.</p>
+<pre><code>on_key_down(key):
+    synth.play(note_for[key])</code></pre>
+<h2 id="11-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>There is no event queue. There are eight buttons wired as a matrix, and one register, <code>rP1</code> (<code>$FF00</code>), to read them. You tell the register which <em>group</em> of buttons to connect, the direction pad or the four buttons, and then read four bits back. A pressed button reads as <strong>0</strong>, so the routine inverts what it reads. It does this twice, once per group, and joins the results into one byte, one bit per button:</p>
+<pre><code><span class="comment">; =============================================================</span>
+<span class="comment">; joypad.asm - reading the buttons (Chapter 11)</span>
+<span class="comment">; =============================================================</span>
+<span class="comment">;   read_joypad   reads the pad; afterwards</span>
+<span class="comment">;                   wJoy    = every button held now   (1 = pressed)</span>
+<span class="comment">;                   wJoyNew = buttons that went down since the last call</span>
+<span class="comment">;                 and A = wJoy.  Bits are the PADF_ values in hardware.inc,</span>
+<span class="comment">;                 the same layout as the standard hardware.inc: buttons in the low nibble, direction pad in the high one.</span>
+<span class="comment">; Call it once per frame, just after the frame begins.</span>
+
+<span class="directive">SECTION</span> <span class="string">"JoypadVars"</span>, WRAM0
+<span class="label">wJoy</span>:    <span class="directive">DS</span> <span class="number">1</span>
+<span class="label">wJoyNew</span>: <span class="directive">DS</span> <span class="number">1</span>
+
+<span class="directive">SECTION</span> <span class="string">"JoypadRoutines"</span>, ROM0
+
+<span class="comment">; The eight buttons share four input lines.  Writing to rP1 chooses which</span>
+<span class="comment">; group is connected: bit 4 low selects the direction pad, bit 5 low the</span>
+<span class="comment">; four buttons.  A pressed button reads as 0, so the result is inverted.</span>
+<span class="label">read_joypad</span>:
+    <span class="keyword">LD</span> A, <span class="number">%00100000</span>         <span class="comment">; bit 5 high, bit 4 low: select the direction pad</span>
+    <span class="keyword">LDH</span> [rP1], A
+    <span class="keyword">LDH</span> A, [rP1]
+    <span class="keyword">LDH</span> A, [rP1]            <span class="comment">; read a few times: the lines take a moment to settle</span>
+    <span class="keyword">LDH</span> A, [rP1]
+    <span class="keyword">CPL</span>                     <span class="comment">; pressed = 1</span>
+    <span class="keyword">AND</span> <span class="number">$0F</span>
+    <span class="keyword">SWAP</span> A                  <span class="comment">; high nibble: Down Up Left Right</span>
+    <span class="keyword">LD</span> B, A
+    <span class="keyword">LD</span> A, <span class="number">%00010000</span>         <span class="comment">; select the buttons</span>
+    <span class="keyword">LDH</span> [rP1], A
+    <span class="keyword">LDH</span> A, [rP1]
+    <span class="keyword">LDH</span> A, [rP1]
+    <span class="keyword">LDH</span> A, [rP1]
+    <span class="keyword">CPL</span>
+    <span class="keyword">AND</span> <span class="number">$0F</span>                 <span class="comment">; low nibble: Start Select B A</span>
+    <span class="keyword">OR</span> B
+    <span class="keyword">LD</span> B, A                 <span class="comment">; B = all eight buttons</span>
+    <span class="keyword">LD</span> A, <span class="number">%00110000</span>
+    <span class="keyword">LDH</span> [rP1], A            <span class="comment">; deselect both groups</span>
+    <span class="keyword">LD</span> A, [wJoy]
+    <span class="keyword">CPL</span>
+    <span class="keyword">AND</span> B                   <span class="comment">; held now and not held before = newly pressed</span>
+    <span class="keyword">LD</span> [wJoyNew], A
+    <span class="keyword">LD</span> A, B
+    <span class="keyword">LD</span> [wJoy], A
+    <span class="keyword">RET</span>
+
+<span class="comment">; --- end of joypad.asm</span></code></pre>
+<p>The routine keeps two bytes. <code>wJoy</code> is every button held right now. <code>wJoyNew</code> is only the buttons that went down since the previous call, found by inverting last frame's state and AND-ing it with this frame's: a bit survives only if the button is down now and was <em>not</em> down before. For a musical instrument that is the important one. Playing a note is something that should happen <em>once per press</em>: with <code>wJoy</code> a held key would restart the note sixty times a second and nothing but a buzz would come out.</p>
+<p>The routine is meant to be called once per frame, straight after <code>wait_frame</code>, which is the pattern of Chapter 9. Every part of the program then agrees about which buttons were down on that frame, and the frame is long enough that the few milliseconds of contact bounce are mostly hidden.</p>
+
+<h3 id="11-example">A complete example</h3>
+<p>The eight buttons each play a note of the C major scale on channel 1, chosen so that the direction pad plays the first four notes and the buttons the rest: Right, Left, Up and Down give C, D, E and F; A, B, Select and Start give G, A, B and C an octave up. Finding the pressed button is a shift loop: shift the byte right until a 1 falls out, counting. The count is the bit number, and it indexes a table of notes written in bit order (A, B, Select, Start, Right, Left, Up, Down):</p>
+<pre><code><span class="comment">; instrument_demo.asm - Chapter 11: play it yourself</span>
+<span class="comment">; Each of the eight buttons plays a note of the C major scale on channel 1, the moment it is</span>
+<span class="comment">; pressed (the "newly pressed" byte from read_joypad: holding a button does not repeat it).</span>
+<span class="directive">INCLUDE</span> <span class="string">"boot.inc"</span>
+<span class="directive">INCLUDE</span> <span class="string">"notes.inc"</span>
+
+    <span class="keyword">CALL</span> screen_init
+    <span class="keyword">CALL</span> sound_init
+    <span class="keyword">LD</span> B, <span class="number">2</span>
+    <span class="keyword">LD</span> C, <span class="number">2</span>
+    <span class="keyword">LD</span> HL, Title
+    <span class="keyword">CALL</span> show_text
+    <span class="keyword">LD</span> B, <span class="number">1</span>
+    <span class="keyword">LD</span> C, <span class="number">4</span>
+    <span class="keyword">LD</span> HL, Keys1
+    <span class="keyword">CALL</span> show_text
+    <span class="keyword">LD</span> B, <span class="number">1</span>
+    <span class="keyword">LD</span> C, <span class="number">5</span>
+    <span class="keyword">LD</span> HL, Keys2
+    <span class="keyword">CALL</span> show_text
+    <span class="keyword">LD</span> B, <span class="number">2</span>
+    <span class="keyword">LD</span> C, <span class="number">7</span>
+    <span class="keyword">LD</span> HL, Playing
+    <span class="keyword">CALL</span> show_text
+
+    <span class="keyword">LD</span> A, DUTY_50
+    <span class="keyword">LDH</span> [rNR11], A
+    <span class="keyword">LD</span> A, <span class="number">$C3</span>
+    <span class="keyword">LDH</span> [rNR12], A              <span class="comment">; volume 12, fading out slowly</span>
+    <span class="keyword">XOR</span> A
+    <span class="keyword">LD</span> [wJoy], A
+    <span class="keyword">CALL</span> frame_init
+    <span class="keyword">EI</span>
+
+<span class="label">MainLoop</span>:
+    <span class="keyword">CALL</span> wait_frame
+    <span class="keyword">CALL</span> read_joypad            <span class="comment">; once per frame, straight after the frame begins</span>
+    <span class="keyword">LD</span> A, [wJoyNew]
+    <span class="keyword">OR</span> A
+    <span class="keyword">JR</span> Z, MainLoop              <span class="comment">; no new button this frame</span>
+
+    <span class="keyword">LD</span> B, <span class="number">0</span>                     <span class="comment">; which button?  Find the lowest bit that is set.</span>
+<span class="label">.find</span>:
+    <span class="keyword">SRL</span> A
+    <span class="keyword">JR</span> C, .found
+    <span class="keyword">INC</span> B
+    <span class="keyword">JR</span> .find
+<span class="label">.found</span>:
+    <span class="keyword">LD</span> HL, Notes
+    <span class="keyword">LD</span> E, B
+    <span class="keyword">LD</span> D, <span class="number">0</span>
+    <span class="keyword">ADD</span> HL, DE
+    <span class="keyword">LD</span> A, [HL]                  <span class="comment">; the note for that button</span>
+    <span class="keyword">PUSH</span> AF
+    <span class="keyword">LD</span> B, <span class="number">10</span>
+    <span class="keyword">LD</span> C, <span class="number">7</span>
+    <span class="keyword">CALL</span> print_at
+    <span class="keyword">POP</span> AF
+    <span class="keyword">PUSH</span> AF
+    <span class="keyword">CALL</span> print_note             <span class="comment">; show its name</span>
+    <span class="keyword">POP</span> AF
+    <span class="keyword">CALL</span> note_freq
+    <span class="keyword">CALL</span> play_ch1
+    <span class="keyword">JR</span> MainLoop
+
+<span class="label">Title</span>:   <span class="directive">DB</span> <span class="string">"Instrument"</span>, <span class="number">0</span>
+<span class="label">Keys1</span>:   <span class="directive">DB</span> <span class="string">"R:C L:D U:E D:F"</span>, <span class="number">0</span>
+<span class="label">Keys2</span>:   <span class="directive">DB</span> <span class="string">"A:G B:A Sl:B St:C"</span>, <span class="number">0</span>
+<span class="label">Playing</span>: <span class="directive">DB</span> <span class="string">"Playing"</span>, <span class="number">0</span>
+
+<span class="comment">; In the order of the bits in wJoy: A, B, Select, Start, Right, Left, Up, Down</span>
+<span class="label">Notes</span>: <span class="directive">DB</span> G5, A5, B5, C6, C5, D5, E5, F5
+
+<span class="directive">INCLUDE</span> <span class="string">"gfx.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"text.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"screen.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"frame.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"sound.asm"</span>
+<span class="directive">INCLUDE</span> <span class="string">"joypad.asm"</span></code></pre>
+<figure class="shot"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAeAAAAGwCAIAAAD+OCE1AAAHHUlEQVR42u3dy26lMBBAwfYo///LzO5ukBAP026bqnXmBkzmyHaAtG3bAoB6/hkCAIEGQKABBBoAgQYQaAAEGgCBBhBoAAQaQKABEGgABBpAoAEQaACBBkCgAQQaAIEGQKABBBoAgQYQaAAEGgCBBhBoAAQaQKABEGgAgQZAoAEQaACBBkCgAQQaAIEGQKABBBoAgQYQaAAEGkCgARBoAAQaQKABEGgAgQZAoAEQaACBBqCDv/qH2Fo7/8Xbtk13DX4nOOPBf5DrhRk0gEADUHO5tvyewJkdkkuDcPCBQz7n4QeeGcxLX7P/pvf2BB6OT9nrDmbQAAINQHz1Lo5eEpb5947n4SdXu6ng4Ly6b6ecOeXun+MuDsygAQQagLDFESvskPhtfox+QMk4YwYNgEADELY4YvDdICz8WhUwgwYQaADCFkfc+W3+wfsfhrz19N53P7g/JGGZX+3ulDPHM3YbZOz1wgwaAIEGYKXXjQKYQQMg0AAINIBAAyDQAAINgEADCDQAAg2AQAMINAACDSDQAAg0AAININAACDSAQAMg0AAINIBAAyDQAAINgEADCDQAAg2AQAMINAACDbC0v+6f2Fo7/8XbtqWd6pkDSzie32Fknnv9Ybk3PgmDeennOWHEyl6vIuNjBg2AQAOELY4XVFuiFjmesg5O+cvDUnZVXu162bUwgwYQaABi3S2OmPD+h6mXae+Nz+8Dp97reHjw1W6f6H69vjM+ZtAACDRA2OIYveSxPjI+A8dn+eE1PmbQAAg0QNjieHAjfXzvRpFwfwiuF2bQAAINQCzyoErmjfT77zXjexrHPmgw5JUO3a9XwoMYQ95b2+u72xgxgwZAoAEm1yxnAMygARBoAIEGQKABBBqA8LrRYg+GjH2+wPi8ejxjH8T4znUv8sDLGn/hxQwaQKABiKFbHJl/p3LG48l8vcby1ysW/cMlM47zfkthyKUs+//dDBogbHEAEGu+brTs4tdvz+vsAJT9LXzCa0szd9h6Hc+9dwh/5/+7GTRA2OIAIBZ/UGXsemTs3xDp/lvmXivKcLfDm+PsbqJl9h/MoAEEGoD4zBbHpaVTkUV0tWV+2S2FmPleHYyzB1UAEGiAsMUx4Xqk7IMPHlRJvl4Hn5w5zqs+qFJknOs/6GQGDRC2OAB4bZ3td+UAZtAACDSAQAMg0AACDYBAAyDQAAINgEADCDQAAg2AQAMINAACDSDQAAg0gEADINAACDSAQAMg0AACDYBAAyDQAAINgEADCDQAAg0g0AAU81f2yFpr579427Ybn3zpX9W36nkl/CAljNiln+fMA8MMGgCBBghbHFnOrPIyV/cHa9Veh3rvdO6de/cdgGpbCtV+fuxaYAYNINAAxFe3OGKeLZch91HstxTuffeH53Xpa2bcRlvsrhLMoAEQaICwxREffdCg7Dr9d+5lNxAm+onqtT+z/xzPUmEGDSDQAIQHVWqs8nrdpbDqjsRE57W/ggnbaHYtMIMGEGgAwoMqiYvxg+Vn9yV8rxsG9l88djVd5EGVS9cr8xUcHlTBDBpAoAF4R7OYmutxCecFZtAACDQAtjgAzKABEGgAgQZAoAEQaACBBkCgAQQaAIEGEGgABBoAgQYQaAAEGkCgARBoAAQaQKABEGgAgQZAoAEEGgCBBkCgAQQaAIEGEGgABBoAgQYQaAAEGkCgARBoAIEGQKABEGgAgQZAoAEEGgCBBkCgAQQaAIEGEGgABBoAgQYQaAAEGkCgARBoAIEGQKABEGgAgQZAoAEEGgCBBkCgAQQaAIEGEGgABBpAoAEQaAAEGkCgARBoAIEGQKABEGgAgQZAoAEEGgCBBhBoAAQaAIEGEGgABBpAoAEQaAAEGkCgARBoAIEGQKABBNoQAAg0AAININAACDSAQAMg0AAINIBAAyDQAAINgEADINAAAg2AQAMINAACDSDQAAg0AAININAACDSAQAMg0AAINIBAAyDQAAINgEADCDQAAg2AQAMINAACDSDQAAg0AAININAACDSAQAMg0AACDYBAAyDQAAINgEADCDQAAg2AQAMINAACDSDQAAg0AAININAACDSAQAMg0AACDYBAAyDQAAINgEADCDQAAg2AQAMINAACDSDQAAg0gEADINAACDSAQAMg0AACDYBAAyDQAAINgEADCDQAAg0g0AAINAACDSDQAAg0gEADINAACDSAQAMg0AACDYBAAyDQAAINgEADCDQAAg0g0AAINAACDSDQAAg0gEADINAACDSAQAMg0AACDYBAAwg0AAINgEADCDQAAg0g0AAINAACDSDQAAg0gEADINAAAg2AQAMg0AACDYBAAwg0AAINgEADCDQAAg0g0AAINAACDSDQAAg0gEADINAAAg2AQAMg0AACDYBAAwg0AAINgEADCDQAAg0g0AAINIBAA1DJf0vZve/dBubIAAAAAElFTkSuQmCC" width="480" height="432" alt="instrument_demo.asm just after the A button was pressed: it has played G and printed its name."><figcaption>instrument_demo.asm just after the A button was pressed: it has played G and printed its name.</figcaption></figure>
+<p><strong>What you hear:</strong> a short plucked note for each button, as quickly as you can press them, and a different note for each. The tests press each of the eight buttons in turn and measure the recorded pitch: all eight are within 15 cents of the scale. They also check that the name printed on screen is right, and that holding a button down plays its note exactly once.</p>
+<p>The loop is the one from the metronome of Chapter 9: one pass per frame, which means a note can start up to 16.7 ms after the button went down. That is below what a person can hear as lateness, and it is why the same loop works equally well for a game.</p>
+
+<h3 id="11-where-next">Where to go next</h3>
+<p>This chapter has everything a small music program needs: the sound hardware, notes from a table, envelopes, effects with lengths, a frame clock, a song engine and input. Put the pieces together: a menu that picks between songs, an instrument that holds the last note and lets you change its duty cycle with the direction pad, a recorder that stores a sequence of (note, frame) pairs in RAM and plays it back through the music engine. The Game Boy's graphics, with tiles, sprites and scrolling, are the subject of the companion book <em>Pixels, Tiles &amp; Sprites</em> and are not covered here, but a bouncing note-name or a screen that flashes to the beat takes only the frame clock you already have.</p>
+<p class="bold-text">Key fact: input is one register read twice, inverted. Keep both &ldquo;held&rdquo; and &ldquo;newly pressed&rdquo;, and use the second to start a note.</p>
+<h3 id="11-exercises">Try it yourself</h3>
+<ol>
+<li>Add an octave shift: while the B button is held, play every note an octave higher. Where do you add 12?</li>
+<li>Change the instrument to channel 3 with a sine wave. What must you remember about its pitch?</li>
+<li>Display the name of the note that is still sounding for a short time after the press, and clear it when the sound ends. What register tells you the channel has finished?</li>
+</ol>
+</section>
+<section>
+<h1 id="conclusion">Conclusion</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+<p>Across eleven chapters one idea keeps coming back: <strong>describe the sound and let the hardware make it.</strong> A note is an 11-bit number and a start bit. A timbre is two bits of duty or sixteen bytes of wave. A fade is a byte in the envelope register, a sound effect's length is a counter in the channel, and a pitch slide is one more register. Even a drum is two bytes. What is left for the program is bookkeeping: count frames, and at the right moment write the next few registers.</p>
+
+<h2 id="what-was-verified">What has and has not been verified</h2>
+<p>Every program here is assembled with no warnings and run on an emulated Game Boy (PyBoy) by an automated test, which records the sound the emulated chip produces and checks it against calculations done in Python: the pitch of each note, the duty cycle of each square wave, the loudness of each envelope, the length of each effect, the direction of each sweep, the shape of each wave and the clock of each drum. The note table is checked against the formula, the metronome against the frame rate, the music engine against the notes the song says, one channel at a time. The figures in this book are drawn from the same recordings, not from the textbook shapes.</p>
+<p>Two things are worth knowing. First, nothing was run on real hardware, or heard through a real speaker. An emulator reproduces what the registers do, and the measurements above hold for it; a real console has an analogue stage, a small speaker and variations between models that no test here measures, and some sounds, such as the very high noise settings, will be filtered differently. Second, the tests can tell you that a pitch is 440 Hz, not that a tune is pleasing. Listen to the examples. The tuning, the envelopes and the song were chosen by ear, and the book's recommendations for particular sounds (a good kick, a good coin) are only that.</p>
+<p>Some matters are deliberately left out: playing recorded speech or samples through the wave channel, the differences between the original console and the Game Boy Color and Advance in their handling of wave RAM and of the quirks of starting channels, and the details of the stereo and master volume stage. None is needed to write the programs in this book, and all are well documented elsewhere. The graphics of the console, with tiles, sprites and scrolling, are the subject of the companion book <em>Pixels, Tiles &amp; Sprites</em>.</p>
+</section>
+<section>
+<h1 id="appendix-a-library-reference">Appendix A: Library Reference</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+<p>Every routine in the book, by file. Inputs are registers; &ldquo;destroys&rdquo; lists what the caller must not rely on.</p>
+
+<h2 id="a-sound">sound.asm: the basics (Chapters 1, 2 and 7)</h2>
+<table>
+<tr><th>Routine</th><th>Input</th><th>Does</th></tr>
+<tr><td><code>sound_init</code></td><td>&mdash;</td><td>Switches the sound chip off and on (clearing every register), then master volume full and every channel to both speakers</td></tr>
+<tr><td><code>note_freq</code></td><td>A note number 0&ndash;71</td><td>DE = the 11-bit pitch value from <code>NoteTable</code> (destroys HL)</td></tr>
+<tr><td><code>play_ch1</code>, <code>play_ch2</code>, <code>play_ch3</code></td><td>DE pitch value</td><td>Writes the pitch to <code>NRx3</code>/<code>NRx4</code> with the start bit set. Set duty and envelope first</td></tr>
+<tr><td><code>wave_load</code></td><td>HL 16 bytes</td><td>Switches channel 3 off, loads wave RAM, switches it on (destroys B, DE)</td></tr>
+</table>
+
+<h2 id="a-notes">notes.inc: names (Chapter 2, 10)</h2>
+<table>
+<tr><th>Names</th><th>Meaning</th></tr>
+<tr><td><code>C2</code> ... <code>B7</code>, with <code>Cs2</code> for C sharp</td><td>Note numbers 0&ndash;71 (C2 = 0, A4 = 33)</td></tr>
+<tr><td><code>REST</code>, <code>SONG_LOOP</code></td><td>Special values in a song stream</td></tr>
+<tr><td><code>DRUM_KICK</code>, <code>DRUM_SNARE</code>, <code>DRUM_HAT</code></td><td>Drum numbers for channel 4 in a song</td></tr>
+<tr><td><code>N16</code>, <code>N8</code>, <code>N4</code>, <code>N2</code>, <code>N1</code></td><td>Lengths in frames: 6, 12, 24, 48, 96</td></tr>
+</table>
+
+<h2 id="a-frame">frame.asm: the frame clock (Chapter 9)</h2>
+<table>
+<tr><th>Routine</th><th>Input</th><th>Does</th></tr>
+<tr><td><code>frame_init</code></td><td>&mdash;</td><td>Enables the VBlank interrupt in <code>rIE</code>; the program must then execute <code>EI</code></td></tr>
+<tr><td><code>wait_frame</code></td><td>&mdash;</td><td>Sleeps until the next frame begins</td></tr>
+<tr><td><code>wTicks</code></td><td>&mdash;</td><td>Frames since <code>frame_init</code>, wrapping at 256</td></tr>
+</table>
+
+<h2 id="a-music">music.asm: the music engine (Chapter 10)</h2>
+<table>
+<tr><th>Routine</th><th>Input</th><th>Does</th></tr>
+<tr><td><code>music_play</code></td><td>HL song</td><td>Starts the song from the beginning</td></tr>
+<tr><td><code>music_tick</code></td><td>&mdash;</td><td>One frame of music: call once per frame, after <code>wait_frame</code></td></tr>
+<tr><td><code>music_stop</code></td><td>&mdash;</td><td>Switches the music off and silences channels 1&ndash;4</td></tr>
+<tr><td><code>sfx_hold</code></td><td>A frames</td><td>Keeps the music off channel 1 for that long, for a sound effect</td></tr>
+</table>
+<p>A song is <code>DW</code> four stream addresses (0 for an unused channel) and <code>DB</code> four instrument bytes. A stream is pairs of bytes: note (or <code>REST</code>) and length in frames, ended by <code>SONG_LOOP</code>. On channel 4 the note is a drum number from <code>DrumTable</code>.</p>
+
+<h2 id="a-screen">screen.asm, gfx.asm, text.asm: the little display</h2>
+<table>
+<tr><th>Routine</th><th>Input</th><th>Does</th></tr>
+<tr><td><code>screen_init</code></td><td>&mdash;</td><td>Loads the font, clears the screen, switches the LCD on</td></tr>
+<tr><td><code>show_text</code></td><td>B column, C row, HL zero-terminated string</td><td>Prints a string at a position</td></tr>
+<tr><td><code>print_note</code></td><td>A note number</td><td>Prints its name, like <code>C-4</code> or <code>F#5</code>, at the cursor</td></tr>
+<tr><td><code>print_at</code></td><td>B column, C row</td><td>Moves the cursor (destroys HL)</td></tr>
+<tr><td><code>print_char</code>, <code>print_string</code>, <code>print_number</code></td><td>A character; HL string; A 0&ndash;255</td><td>Print at the cursor (safe with the LCD on)</td></tr>
+</table>
+
+<h2 id="a-joypad">joypad.asm: input (Chapter 11)</h2>
+<table>
+<tr><th>Routine</th><th>Input</th><th>Does</th></tr>
+<tr><td><code>read_joypad</code></td><td>&mdash;</td><td>Updates <code>wJoy</code> (held) and <code>wJoyNew</code> (newly pressed); A = <code>wJoy</code></td></tr>
+</table>
+</section>
+
+<section>
+<h1 id="appendix-b-registers">Appendix B: Sound Registers</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+<table>
+<tr><th>Register</th><th>Address</th><th>Purpose</th></tr>
+<tr><td><code>rNR10</code></td><td><code>$FF10</code></td><td>Channel 1 sweep: bits 6&ndash;4 step time (n/128 s, 0 = off); bit 3 direction (1 = falling); bits 2&ndash;0 shift</td></tr>
+<tr><td><code>rNR11</code>, <code>rNR21</code></td><td><code>$FF11</code>, <code>$FF16</code></td><td>Bits 7&ndash;6 duty (1/8, 2/8, 4/8, 6/8); bits 5&ndash;0 length: lasts (64 &minus; length)/256 s</td></tr>
+<tr><td><code>rNR12</code>, <code>rNR22</code>, <code>rNR42</code></td><td><code>$FF12</code>, <code>$FF17</code>, <code>$FF21</code></td><td>Envelope: bits 7&ndash;4 start volume; bit 3 rising; bits 2&ndash;0 step time in 1/64 s (0 = none). Top five bits zero switches the channel off</td></tr>
+<tr><td><code>rNR13</code>, <code>rNR23</code>, <code>rNR33</code></td><td><code>$FF13</code>, <code>$FF18</code>, <code>$FF1D</code></td><td>Pitch, low 8 bits</td></tr>
+<tr><td><code>rNR14</code>, <code>rNR24</code>, <code>rNR34</code></td><td><code>$FF14</code>, <code>$FF19</code>, <code>$FF1E</code></td><td>Bit 7 start; bit 6 stop when the length runs out; bits 2&ndash;0 pitch, high 3 bits. Channels 1&ndash;2: 131072 / (2048 &minus; x) Hz; channel 3: 65536 / (2048 &minus; x) Hz</td></tr>
+<tr><td><code>rNR30</code></td><td><code>$FF1A</code></td><td>Bit 7: channel 3 on</td></tr>
+<tr><td><code>rNR31</code></td><td><code>$FF1B</code></td><td>Channel 3 length: lasts (256 &minus; length)/256 s</td></tr>
+<tr><td><code>rNR32</code></td><td><code>$FF1C</code></td><td>Channel 3 volume, bits 6&ndash;5: 0 silent, 1 full, 2 half, 3 a quarter</td></tr>
+<tr><td><code>rWAVE</code></td><td><code>$FF30</code>&ndash;<code>$FF3F</code></td><td>Wave RAM: 32 four-bit samples, high four bits first. Change it with channel 3 off</td></tr>
+<tr><td><code>rNR41</code></td><td><code>$FF20</code></td><td>Channel 4 length, bits 5&ndash;0</td></tr>
+<tr><td><code>rNR43</code></td><td><code>$FF22</code></td><td>Noise: bits 7&ndash;4 shift s; bit 3 width (1 = 7-bit, buzzy); bits 2&ndash;0 divisor r. Clock 262144 / (r &times; 2<sup>s</sup>) Hz</td></tr>
+<tr><td><code>rNR44</code></td><td><code>$FF23</code></td><td>Bit 7 start; bit 6 stop when the length runs out</td></tr>
+<tr><td><code>rNR50</code></td><td><code>$FF24</code></td><td>Master volume: bits 6&ndash;4 left, bits 2&ndash;0 right (0&ndash;7)</td></tr>
+<tr><td><code>rNR51</code></td><td><code>$FF25</code></td><td>Panning: bits 7&ndash;4 channels 4&ndash;1 to the left, bits 3&ndash;0 channels 4&ndash;1 to the right</td></tr>
+<tr><td><code>rNR52</code></td><td><code>$FF26</code></td><td>Bit 7 sound on. Switching it off clears every sound register. Bits 3&ndash;0 (read): channels 4&ndash;1 are playing</td></tr>
+</table>
+</section>
+
+<section>
+<h1 id="appendix-c-notes">Appendix C: Note Table</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+<p>The 11-bit pitch value of every note from C2 to B7, as held in <code>NoteTable</code> (hexadecimal, for the square channels; ask for a note an octave higher on channel 3). The value is <code>2048 &minus; 131072 / f</code> for the note's frequency <em>f</em>, rounded. The octave is the number in the note's name: A4 is in row 4 and column A.</p>
+<table>
+<tr><th>Octave</th><th>C</th><th>C#</th><th>D</th><th>D#</th><th>E</th><th>F</th><th>F#</th><th>G</th><th>G#</th><th>A</th><th>A#</th><th>B</th></tr>
+<tr><td>2</td><td><code>$02C</code></td><td><code>$09D</code></td><td><code>$107</code></td><td><code>$16B</code></td><td><code>$1C9</code></td><td><code>$223</code></td><td><code>$277</code></td><td><code>$2C7</code></td><td><code>$312</code></td><td><code>$358</code></td><td><code>$39B</code></td><td><code>$3DA</code></td></tr>
+<tr><td>3</td><td><code>$416</code></td><td><code>$44E</code></td><td><code>$483</code></td><td><code>$4B5</code></td><td><code>$4E5</code></td><td><code>$511</code></td><td><code>$53B</code></td><td><code>$563</code></td><td><code>$589</code></td><td><code>$5AC</code></td><td><code>$5CE</code></td><td><code>$5ED</code></td></tr>
+<tr><td>4</td><td><code>$60B</code></td><td><code>$627</code></td><td><code>$642</code></td><td><code>$65B</code></td><td><code>$672</code></td><td><code>$689</code></td><td><code>$69E</code></td><td><code>$6B2</code></td><td><code>$6C4</code></td><td><code>$6D6</code></td><td><code>$6E7</code></td><td><code>$6F7</code></td></tr>
+<tr><td>5</td><td><code>$706</code></td><td><code>$714</code></td><td><code>$721</code></td><td><code>$72D</code></td><td><code>$739</code></td><td><code>$744</code></td><td><code>$74F</code></td><td><code>$759</code></td><td><code>$762</code></td><td><code>$76B</code></td><td><code>$773</code></td><td><code>$77B</code></td></tr>
+<tr><td>6</td><td><code>$783</code></td><td><code>$78A</code></td><td><code>$790</code></td><td><code>$797</code></td><td><code>$79D</code></td><td><code>$7A2</code></td><td><code>$7A7</code></td><td><code>$7AC</code></td><td><code>$7B1</code></td><td><code>$7B6</code></td><td><code>$7BA</code></td><td><code>$7BE</code></td></tr>
+<tr><td>7</td><td><code>$7C1</code></td><td><code>$7C5</code></td><td><code>$7C8</code></td><td><code>$7CB</code></td><td><code>$7CE</code></td><td><code>$7D1</code></td><td><code>$7D4</code></td><td><code>$7D6</code></td><td><code>$7D9</code></td><td><code>$7DB</code></td><td><code>$7DD</code></td><td><code>$7DF</code></td></tr>
+</table>
+<p>The fourth octave, with the frequencies the values actually give (the tuning is A4 = 440 Hz):</p>
+<table>
+<tr><th>Note</th><th>C4</th><th>C#4</th><th>D4</th><th>D#4</th><th>E4</th><th>F4</th><th>F#4</th><th>G4</th><th>G#4</th><th>A4</th><th>A#4</th><th>B4</th></tr>
+<tr><td>Hz</td><td>261.6</td><td>277.1</td><td>293.9</td><td>311.3</td><td>329.3</td><td>349.5</td><td>370.3</td><td>392.4</td><td>414.8</td><td>439.8</td><td>466.4</td><td>494.6</td></tr>
+<tr><td>Value</td><td><code>$60B</code></td><td><code>$627</code></td><td><code>$642</code></td><td><code>$65B</code></td><td><code>$672</code></td><td><code>$689</code></td><td><code>$69E</code></td><td><code>$6B2</code></td><td><code>$6C4</code></td><td><code>$6D6</code></td><td><code>$6E7</code></td><td><code>$6F7</code></td></tr>
+</table>
+</section>
+
+</body>
+</html>

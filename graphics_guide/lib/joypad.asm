@@ -4,7 +4,8 @@
 ;   read_joypad   reads the pad; afterwards
 ;                   wJoy    = every button held now   (1 = pressed)
 ;                   wJoyNew = buttons that went down since the last call
-;                 and A = wJoy.  Bits are the PADF_ values in hardware.inc.
+;                 and A = wJoy.  Bits are the PADF_ values in hardware.inc,
+;                 the same layout as the standard hardware.inc: buttons in the low nibble, direction pad in the high one.
 ; Call it once per frame, just after the frame begins.
 
 SECTION "JoypadVars", WRAM0
@@ -24,15 +25,15 @@ read_joypad:
     LDH A, [rP1]
     CPL                     ; pressed = 1
     AND $0F
-    LD B, A                 ; low nibble: Down Up Left Right
+    SWAP A                  ; high nibble: Down Up Left Right
+    LD B, A
     LD A, %00010000         ; select the buttons
     LDH [rP1], A
     LDH A, [rP1]
     LDH A, [rP1]
     LDH A, [rP1]
     CPL
-    AND $0F
-    SWAP A                  ; high nibble: Start Select B A
+    AND $0F                 ; low nibble: Start Select B A
     OR B
     LD B, A                 ; B = all eight buttons
     LD A, %00110000

@@ -1,0 +1,91 @@
+; notes.inc - note names for the note table in sound.asm.
+; C2 is note 0, and every semitone adds one: C3 = 12, C4 = 24, A4 = 33 (440 Hz).
+; A sharp is written As, so As3 is the note a semitone above A3.
+
+DEF C2 EQU 0
+DEF Cs2 EQU 1
+DEF D2 EQU 2
+DEF Ds2 EQU 3
+DEF E2 EQU 4
+DEF F2 EQU 5
+DEF Fs2 EQU 6
+DEF G2 EQU 7
+DEF Gs2 EQU 8
+DEF A2 EQU 9
+DEF As2 EQU 10
+DEF B2 EQU 11
+DEF C3 EQU 12
+DEF Cs3 EQU 13
+DEF D3 EQU 14
+DEF Ds3 EQU 15
+DEF E3 EQU 16
+DEF F3 EQU 17
+DEF Fs3 EQU 18
+DEF G3 EQU 19
+DEF Gs3 EQU 20
+DEF A3 EQU 21
+DEF As3 EQU 22
+DEF B3 EQU 23
+DEF C4 EQU 24
+DEF Cs4 EQU 25
+DEF D4 EQU 26
+DEF Ds4 EQU 27
+DEF E4 EQU 28
+DEF F4 EQU 29
+DEF Fs4 EQU 30
+DEF G4 EQU 31
+DEF Gs4 EQU 32
+DEF A4 EQU 33
+DEF As4 EQU 34
+DEF B4 EQU 35
+DEF C5 EQU 36
+DEF Cs5 EQU 37
+DEF D5 EQU 38
+DEF Ds5 EQU 39
+DEF E5 EQU 40
+DEF F5 EQU 41
+DEF Fs5 EQU 42
+DEF G5 EQU 43
+DEF Gs5 EQU 44
+DEF A5 EQU 45
+DEF As5 EQU 46
+DEF B5 EQU 47
+DEF C6 EQU 48
+DEF Cs6 EQU 49
+DEF D6 EQU 50
+DEF Ds6 EQU 51
+DEF E6 EQU 52
+DEF F6 EQU 53
+DEF Fs6 EQU 54
+DEF G6 EQU 55
+DEF Gs6 EQU 56
+DEF A6 EQU 57
+DEF As6 EQU 58
+DEF B6 EQU 59
+DEF C7 EQU 60
+DEF Cs7 EQU 61
+DEF D7 EQU 62
+DEF Ds7 EQU 63
+DEF E7 EQU 64
+DEF F7 EQU 65
+DEF Fs7 EQU 66
+DEF G7 EQU 67
+DEF Gs7 EQU 68
+DEF A7 EQU 69
+DEF As7 EQU 70
+DEF B7 EQU 71
+
+DEF REST      EQU $FE      ; in a song: silence for the given time
+DEF SONG_LOOP EQU $FF      ; in a song: go back to the start of the channel
+
+; Drums for channel 4 in a song (see DrumTable in music.asm)
+DEF DRUM_KICK  EQU 0
+DEF DRUM_SNARE EQU 1
+DEF DRUM_HAT   EQU 2
+
+; Note lengths for a song, in frames: one frame is 1/60 s, so a quarter note of 24 frames is 150 beats a minute
+DEF N16 EQU 6
+DEF N8  EQU 12
+DEF N4  EQU 24
+DEF N2  EQU 48
+DEF N1  EQU 96

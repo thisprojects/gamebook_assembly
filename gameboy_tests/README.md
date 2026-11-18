@@ -2,7 +2,7 @@
 
 Assembles every file in `gameboy_lib/` and `gameboy_examples/` with RGBDS, runs each program on an emulated
 Game Boy (PyBoy, headless), and checks what appears on screen. It also runs the code blocks quoted in
-`gameboy_book.html` and checks the book itself (structure against the Z80 book, links, colour contrast).
+`gameboy_book.html` and checks the book itself (chapters, links, colour contrast).
 
     python3 -m venv .venv && .venv/bin/pip install -r gameboy_tests/requirements.txt
     .venv/bin/python gameboy_tests/test_lib.py [test names]

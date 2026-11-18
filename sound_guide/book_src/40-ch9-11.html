@@ -1,0 +1,133 @@
+<section>
+<h1 id="9-keeping-time">9. Keeping Time</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="9-in-high-level-languages">In High-Level Languages</h2>
+<p>Time is a service. You ask for a timer and the system calls you back, or you sleep and are woken, and in between the processor does other work:</p>
+[[text]]
+setInterval(play_next_note, 500)        # every half second
+sleep(0.5)                              # or: wait half a second
+[[/text]]
+<p>Behind this is a clock chip and an operating system that keeps a list of timers. You never see how long a millisecond really is.</p>
+<h2 id="9-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>The Game Boy has no operating system and no timer queue. What it does have is the screen, which is redrawn 59.73 times a second without fail, and which says so: at the end of each picture the LCD raises the <em>VBlank interrupt</em>. This is the program's clock, and the one every game uses. One tick of it is a <strong>frame</strong>, about 16.7 milliseconds, and every duration in a Game Boy program, from a note to a level, is counted in frames.</p>
+<p>The sound hardware does not need this clock to <em>make</em> a note, but the program needs it to know <em>when</em> to start the next one. <code>frame.asm</code> is the whole mechanism:</p>
+[[file frame.asm]]
+<p>When the interrupt arrives the processor stops what it is doing, saves its place, and runs the handler at <code>$40</code>, which sets a flag and counts. <code>wait_frame</code> does nothing but wait for the flag. The program turns this on with three things: <code>frame_init</code> enables the interrupt in <code>rIE</code>, the LCD must be on (without a picture there are no frames), and the program executes <code>EI</code> to allow interrupts at all. The <code>HALT</code> instruction is the important one: it stops the processor completely until the next interrupt, so the program does no work, wastes no power, and wakes at exactly the start of the frame. The <code>NOP</code> after it is a habit: on the SM83 the instruction after a <code>HALT</code> can misbehave in rare circumstances (the "halt bug"), so a harmless one goes there.</p>
+<p>A program that plays music is, from this point of view, one loop:</p>
+[[text]]
+loop:
+    wait_frame        sleep until the frame begins
+    ...               do this frame's work: check the buttons, move things,
+    music_tick        update the music
+    jump loop
+[[/text]]
+
+<h3 id="9-tempo">Tempo in frames</h3>
+<p>If a beat is <em>n</em> frames, the tempo is</p>
+[[text]]
+beats per minute = 59.73 * 60 / n
+[[/text]]
+<p>Thirty frames to a beat is 119.5 beats a minute, near enough 120. Twenty-four frames, the quarter note used by the song in Chapter 10, is 149 a minute. The usual lengths for a song are written in <code>notes.inc</code> as constants: <code>N16</code> is 6 frames, <code>N8</code> 12, <code>N4</code> 24, <code>N2</code> 48 and <code>N1</code> 96, so that a bar is exactly 96 frames.</p>
+<p>The whole frame is the finest division of time there is, which means a tempo is a whole number of frames. A real 140 beats a minute would be 25.6 frames; the program would have to play some beats at 25 and some at 26. The usual trick is a counter that adds the fraction each beat and carries into the whole number when it overflows, much as the <code>wCount</code> of the metronome below counts to its limit. Many games simply pick the nearest whole number, and the listener never knows.</p>
+
+<h3 id="9-example">A complete example</h3>
+<p>This metronome plays one click on every 30th frame, a high one on the first beat of each bar of four, and prints the beat number. Nothing else is happening, so it is the clearest picture of the loop. The click is a short square note whose length (Chapter 5) stops it before the next:</p>
+[[file timing_demo.asm]]
+<p><strong>What you hear:</strong> a steady click, a higher one every fourth beat. The tests record the sound and find the start of every click: they are thirty frames apart, to within half a frame, for the whole recording, the accented beats are an octave above the others (880 and 440 Hz), and the frame counter <code>wTicks</code> goes up by exactly the number of frames that have passed.</p>
+<p class="bold-text">Key fact: the screen is the Game Boy's clock. Sleep until the frame with <code>wait_frame</code>, count frames to measure time, and let the sound hardware keep the note going in between.</p>
+<h3 id="9-exercises">Try it yourself</h3>
+<ol>
+<li>Change <code>BEAT_FRAMES</code> to 20. What is the tempo now? Change it to 15?</li>
+<li>Make the second and fourth beats quieter. Where is the envelope byte written, and what value would you use?</li>
+<li>Add a second counter so that the metronome also shows which bar it is on. Where does it go up?</li>
+</ol>
+</section>
+
+<section>
+<h1 id="10-a-music-engine">10. A Music Engine</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="10-in-high-level-languages">In High-Level Languages</h2>
+<p>Music is a file: MIDI, or tracker module, or a recording. A player library reads it, schedules every note, mixes the instruments and plays the result, and you call one function:</p>
+[[text]]
+song = load("tune.mid")
+song.play(loop = True)
+[[/text]]
+<p>Behind that call sits a <em>sequencer</em>, a program whose only job is to walk through a list of notes at the right moments and tell the instruments what to do.</p>
+<h2 id="10-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>The Game Boy needs the same thing, and it is a small enough program to read in full. It is a sequencer for four channels, one stream of events per channel, driven by the frame clock of Chapter 9. Each event says what to play and for how many frames. Once per frame the engine takes one frame off each channel's wait, and when a wait reaches zero it reads the next event.</p>
+
+<h3 id="10-the-data">The shape of a song</h3>
+<p>A song is a header and four streams. The header holds the address of each channel's stream (0 means the channel is not used), then four <em>instrument</em> bytes: the value written to the envelope register of channels 1 and 2, the volume register of channel 3, and one more for channel 4 (which is not used: each drum carries its own). A stream is pairs of bytes: <strong>a note and a length in frames</strong>. Two special notes exist: <code>REST</code> (silence for the given time) and <code>SONG_LOOP</code> (go back to the start of this stream). On channel 4 the &ldquo;note&rdquo; is a drum number:</p>
+[[text]]
+Song:
+    DW LeadStream, ArpStream, BassStream, DrumStream
+    DB $A2, $62, WAVE_FULL, 0         ; instruments
+
+LeadStream:
+    DB A4, N8, C5, N8, E5, N4, ...    ; note, length; note, length ...
+    DB SONG_LOOP
+[[/text]]
+<p>The complete engine follows. The main entry points are <code>music_play</code> (set the header up), <code>music_tick</code> (one frame of music) and <code>sfx_hold</code> (keep the music off channel 1 for a moment):</p>
+[[file music.asm]]
+
+<h3 id="10-how-it-works">How it works</h3>
+<p><code>music_play</code> copies the four stream addresses into RAM twice: once as <em>where the channel is reading now</em> (<code>wChanPtr</code>), once as <em>where it began</em> (<code>wChanStart</code>, for looping), and the four instrument bytes beside them. It zeroes every channel's wait, so that on the first tick each channel reads its first event at once, and gives channels 1 and 2 the duty cycles they use (25% and 50%).</p>
+<p><code>music_tick</code> loops over the four channels and runs <code>channel_tick</code> for each. That does three things. If the wait is not yet zero it takes one off and returns. If it is, it reads the next event: the note, then the length, stored as the new wait. And it plays the note. Reading the event is a pointer walk: <code>get_ptr</code> loads the channel's pointer, two bytes are read and <code>put_ptr</code> saves it. If the first byte is <code>SONG_LOOP</code>, <code>rewind</code> copies the start address back first.</p>
+<p><code>play_event</code> is the only part that touches the sound hardware, and it needs very little because the four channels' registers are so alike. The envelope register of channel <em>c</em> (0 to 3) is at <code>$FF12 + 5 &times; c</code>, and the pitch registers follow it, so one routine reaches all three square-or-wave channels: look up the pitch, write the instrument byte to the envelope register, then the two pitch bytes with the start bit. (Channel 3 plays an octave low, so the engine asks for a note twelve semitones higher, as in Chapter 7.) Channel 4 takes a drum from <code>DrumTable</code>: two bytes, the envelope and the noise setting of Chapter 8.</p>
+<p>A rest calls <code>silence</code>, which writes <code>$08</code> to the channel's envelope register (volume 0, output still on) and starts the channel again, as Chapter 4 explains, or sets the volume register of channel 3 to zero, so a steady note ends cleanly at the rest. An unused channel is given a stream that is one very long rest.</p>
+
+<h3 id="10-where-to-tick">Where to call it</h3>
+<p>Here <code>music_tick</code> is called from the main loop, straight after <code>wait_frame</code>. Many drivers instead call it from the VBlank handler itself. Both are common. The main-loop way is simpler and keeps the handler short, but it has one weakness: if a frame's other work ever runs past the end of the frame, the tick is late and the music stutters. Calling it from the handler makes the music immune to that, at the price of running the whole engine with the interrupt busy, which must be finished before the next one is due. A game with heavy per-frame work should use the handler; this book's programs have none.</p>
+
+<h3 id="10-sfx">Sound effects over music</h3>
+<p>A game has both music and effects, and there are only four channels. The usual arrangement is that an effect borrows one: the music engine is told to leave channel 1 alone for a few frames, and the effect plays there. <code>sfx_hold</code> does exactly that, with a countdown in <code>wSfxTimer</code> that the engine checks before touching channel 1. The music carries on in the other three, and goes back to channel 1 at its next note, resetting the sweep and the duty cycle that the effect may have left behind.</p>
+
+<h3 id="10-example">A complete example</h3>
+<p>This song is four bars of A minor, F, C and G, 384 frames long, repeated for ever: a lead melody on channel 1, an arpeggio on channel 2, a bass line on channel 3 using a triangle wave, and drums on channel 4. Pressing A fires the jump effect from Chapter 6 on channel 1, holding the music off it for 20 frames:</p>
+[[file music_demo.asm]]
+<p>The arpeggio and drum streams use the assembler's <code>REPT</code> to repeat the same pattern, so a bar of sixteen notes is written as four. <code>REPT</code> is a copy-and-paste done at assembly time and costs nothing when the program runs.</p>
+<p><strong>What you hear:</strong> a bouncing four-channel tune with drums that begins again after eight seconds, and a rising &ldquo;boing&rdquo; over the top of it when you press A, after which the lead comes back. The tests listen to each channel on its own (by writing <code>$11</code>, <code>$22</code>, <code>$44</code> or <code>$88</code> to <code>rNR51</code>, as in Chapter 1) and check that the lead, the arpeggio, the bass and the drums play the right pitches (or, for the drums, the right sort of sound) at the right frames, that the lead comes back to its first event every 384 frames, and that an effect on channel 1 leaves channels 2 to 4 undisturbed and the lead's sweep and duty restored afterwards. A second, smaller song tests the engine's rests, an empty channel and its looping.</p>
+<p class="bold-text">Key fact: a music engine is a loop over the channels that counts frames and, when a count runs out, reads a note and writes the same few registers you used by hand in the earlier chapters.</p>
+<h3 id="10-exercises">Try it yourself</h3>
+<ol>
+<li>Write a second bar for the lead on channel 1 using notes of your choice. What must you do to the other three streams so that they stay in step?</li>
+<li>Add a rest to the drum stream, for instance on the third eighth note. Which line changes?</li>
+<li>Extend the engine with a fifth event type, a &ldquo;set duty&rdquo; command in the stream. Where would the new case go in <code>channel_tick</code>?</li>
+</ol>
+</section>
+
+<section>
+<h1 id="11-input-and-a-playable-instrument">11. Input &amp; a Playable Instrument</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="11-in-high-level-languages">In High-Level Languages</h2>
+<p>Input arrives as events: <code>onKeyDown(key)</code> is called when a key goes down and the program plays a note in the handler. The operating system has already decoded the electrical signal into a key code and queued it.</p>
+[[text]]
+on_key_down(key):
+    synth.play(note_for[key])
+[[/text]]
+<h2 id="11-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>There is no event queue. There are eight buttons wired as a matrix, and one register, <code>rP1</code> (<code>$FF00</code>), to read them. You tell the register which <em>group</em> of buttons to connect, the direction pad or the four buttons, and then read four bits back. A pressed button reads as <strong>0</strong>, so the routine inverts what it reads. It does this twice, once per group, and joins the results into one byte, one bit per button:</p>
+[[file joypad.asm]]
+<p>The routine keeps two bytes. <code>wJoy</code> is every button held right now. <code>wJoyNew</code> is only the buttons that went down since the previous call, found by inverting last frame's state and AND-ing it with this frame's: a bit survives only if the button is down now and was <em>not</em> down before. For a musical instrument that is the important one. Playing a note is something that should happen <em>once per press</em>: with <code>wJoy</code> a held key would restart the note sixty times a second and nothing but a buzz would come out.</p>
+<p>The routine is meant to be called once per frame, straight after <code>wait_frame</code>, which is the pattern of Chapter 9. Every part of the program then agrees about which buttons were down on that frame, and the frame is long enough that the few milliseconds of contact bounce are mostly hidden.</p>
+
+<h3 id="11-example">A complete example</h3>
+<p>The eight buttons each play a note of the C major scale on channel 1, chosen so that the direction pad plays the first four notes and the buttons the rest: Right, Left, Up and Down give C, D, E and F; A, B, Select and Start give G, A, B and C an octave up. Finding the pressed button is a shift loop: shift the byte right until a 1 falls out, counting. The count is the bit number, and it indexes a table of notes written in bit order (A, B, Select, Start, Right, Left, Up, Down):</p>
+[[file instrument_demo.asm]]
+[[shot instrument_demo | instrument_demo.asm just after the A button was pressed: it has played G and printed its name.]]
+<p><strong>What you hear:</strong> a short plucked note for each button, as quickly as you can press them, and a different note for each. The tests press each of the eight buttons in turn and measure the recorded pitch: all eight are within 15 cents of the scale. They also check that the name printed on screen is right, and that holding a button down plays its note exactly once.</p>
+<p>The loop is the one from the metronome of Chapter 9: one pass per frame, which means a note can start up to 16.7 ms after the button went down. That is below what a person can hear as lateness, and it is why the same loop works equally well for a game.</p>
+
+<h3 id="11-where-next">Where to go next</h3>
+<p>This chapter has everything a small music program needs: the sound hardware, notes from a table, envelopes, effects with lengths, a frame clock, a song engine and input. Put the pieces together: a menu that picks between songs, an instrument that holds the last note and lets you change its duty cycle with the direction pad, a recorder that stores a sequence of (note, frame) pairs in RAM and plays it back through the music engine. The Game Boy's graphics, with tiles, sprites and scrolling, are the subject of the companion book <em>Pixels, Tiles &amp; Sprites</em> and are not covered here, but a bouncing note-name or a screen that flashes to the beat takes only the frame clock you already have.</p>
+<p class="bold-text">Key fact: input is one register read twice, inverted. Keep both &ldquo;held&rdquo; and &ldquo;newly pressed&rdquo;, and use the second to start a note.</p>
+<h3 id="11-exercises">Try it yourself</h3>
+<ol>
+<li>Add an octave shift: while the B button is held, play every note an octave higher. Where do you add 12?</li>
+<li>Change the instrument to channel 3 with a sine wave. What must you remember about its pitch?</li>
+<li>Display the name of the note that is still sounding for a short time after the press, and clear it when the sound ends. What register tells you the channel has finished?</li>
+</ol>
+</section>

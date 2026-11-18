@@ -352,7 +352,7 @@ figure.shot figcaption { font-size: 0.85rem; margin-top: 0.3rem; }
 
 <p>The original Game Boy was built to do one thing well: put moving pictures on a small, slow LCD, sixty times a second, using a processor that is barely faster than a pocket calculator. It manages this because most of the hard work of drawing is not done by your program at all. The screen is assembled by dedicated hardware from three ingredients you provide: <strong>tiles</strong> (8&times;8 pictures), <strong>maps</strong> (grids saying which tile goes where) and <strong>sprites</strong> (tiles that float freely above everything else).</p>
 
-<p>That changes how you think about graphics. On many machines you would work out where in memory a pixel lives and change it yourself. On the Game Boy you will rarely touch a pixel directly. You describe the picture &mdash; &ldquo;this tile here, that sprite there, scroll by three&rdquo; &mdash; and the hardware draws it, applying transparency, flipping, clipping and scrolling for free. This book teaches graphics the way the machine wants them taught: ten topics, each starting with the job you want done and showing the Game Boy's own way of doing it, and a last chapter that adds the joypad and ties them into something you can steer. Sound is left for another book, and the link cable and cartridge hardware are not covered.</p>
+<p>That changes how you think about graphics. On many machines you would work out where in memory a pixel lives and change it yourself. On the Game Boy you will rarely touch a pixel directly. You describe the picture &mdash; &ldquo;this tile here, that sprite there, scroll by three&rdquo; &mdash; and the hardware draws it, applying transparency, flipping, clipping and scrolling for free. This book teaches graphics the way the machine wants them taught: ten topics, each starting with the job you want done and showing the Game Boy's own way of doing it, and a last chapter that adds the joypad and ties them into something you can steer. Sound has its own companion book, <em>Beeps, Waves &amp; Noise</em>, and the link cable and cartridge hardware are not covered.</p>
 
 <h2 id="what-you-should-know">What you should know first</h2>
 <p>This book assumes you can read basic Game Boy (SM83) assembly: registers <code>A</code>, <code>B</code>, <code>C</code>, <code>D</code>, <code>E</code>, <code>H</code>, <code>L</code>, the 16-bit pairs such as <code>HL</code>, <code>LD</code>, <code>ADD</code>, <code>CP</code>, the flags, <code>JR</code> and <code>CALL</code>. If you can follow a loop that counts from 1 to 10, you are ready. Everything graphical is explained from scratch.</p>
@@ -3895,7 +3895,8 @@ JR NZ        3        = 13 cycles per byte</code></pre>
 <span class="comment">;   read_joypad   reads the pad; afterwards</span>
 <span class="comment">;                   wJoy    = every button held now   (1 = pressed)</span>
 <span class="comment">;                   wJoyNew = buttons that went down since the last call</span>
-<span class="comment">;                 and A = wJoy.  Bits are the PADF_ values in hardware.inc.</span>
+<span class="comment">;                 and A = wJoy.  Bits are the PADF_ values in hardware.inc,</span>
+<span class="comment">;                 the same layout as the standard hardware.inc: buttons in the low nibble, direction pad in the high one.</span>
 <span class="comment">; Call it once per frame, just after the frame begins.</span>
 
 <span class="directive">SECTION</span> <span class="string">"JoypadVars"</span>, WRAM0
@@ -3915,15 +3916,15 @@ JR NZ        3        = 13 cycles per byte</code></pre>
     <span class="keyword">LDH</span> A, [rP1]
     <span class="keyword">CPL</span>                     <span class="comment">; pressed = 1</span>
     <span class="keyword">AND</span> <span class="number">$0F</span>
-    <span class="keyword">LD</span> B, A                 <span class="comment">; low nibble: Down Up Left Right</span>
+    <span class="keyword">SWAP</span> A                  <span class="comment">; high nibble: Down Up Left Right</span>
+    <span class="keyword">LD</span> B, A
     <span class="keyword">LD</span> A, <span class="number">%00010000</span>         <span class="comment">; select the buttons</span>
     <span class="keyword">LDH</span> [rP1], A
     <span class="keyword">LDH</span> A, [rP1]
     <span class="keyword">LDH</span> A, [rP1]
     <span class="keyword">LDH</span> A, [rP1]
     <span class="keyword">CPL</span>
-    <span class="keyword">AND</span> <span class="number">$0F</span>
-    <span class="keyword">SWAP</span> A                  <span class="comment">; high nibble: Start Select B A</span>
+    <span class="keyword">AND</span> <span class="number">$0F</span>                 <span class="comment">; low nibble: Start Select B A</span>
     <span class="keyword">OR</span> B
     <span class="keyword">LD</span> B, A                 <span class="comment">; B = all eight buttons</span>
     <span class="keyword">LD</span> A, <span class="number">%00110000</span>
@@ -4285,7 +4286,7 @@ JR NZ        3        = 13 cycles per byte</code></pre>
 <p>The test suite steers the figure by pressing buttons in the emulator. It checks its position after each move, that it stops against the middle wall from both sides and against the border, that the walk frames really alternate, and that holding A turns it round exactly once.</p>
 
 <h3 id="11-where-next">Where to go next</h3>
-<p>This chapter has everything a small game needs: a tile map for the world, sprites for characters, scrolling for large levels, a window for the HUD, text, a frame loop, input, and collision with the map. Put the pieces together: scroll the room, give it a HUD, add enemies that move by the same rules as the player. The Game Boy's sound hardware, with four channels and their own registers, is the subject of a separate book and is not covered here.</p>
+<p>This chapter has everything a small game needs: a tile map for the world, sprites for characters, scrolling for large levels, a window for the HUD, text, a frame loop, input, and collision with the map. Put the pieces together: scroll the room, give it a HUD, add enemies that move by the same rules as the player. The Game Boy's sound hardware, with four channels and their own registers, is the subject of the companion book <em>Beeps, Waves &amp; Noise</em> and is not covered here.</p>
 <p class="bold-text">Key fact: input is one register read twice, inverted. Keep both &ldquo;held&rdquo; and &ldquo;newly pressed&rdquo;, and read the pad once per frame.</p>
 
 <h3 id="11-exercises">Try it yourself</h3>
@@ -4303,7 +4304,7 @@ JR NZ        3        = 13 cycles per byte</code></pre>
 <h2 id="what-was-verified">What has and has not been verified</h2>
 <p>Every program here is assembled with no warnings and run on an emulated Game Boy (PyBoy) by an automated test, which checks video memory, work RAM, sprite memory, the picture on the screen and, for the later chapters, the response to button presses. The timings in Chapter 10 come from the emulator's divider register and agree with counting cycles by hand to within a couple of percent; real hardware was not measured.</p>
 <p>Two things are worth knowing. First, nothing was run on real hardware. The emulator is accurate enough for everything in this book, but a real console is less forgiving: an emulator can let a badly timed VRAM write succeed where a console would drop it, so keep to the VBlank and LCD-off rules even when something appears to work. Second, the Game Boy Color demonstrations (the palettes in Chapter 2 and the hardware copy in Chapter 10) were checked only in the emulator's colour mode. The rest of the book uses nothing beyond the original hardware, and runs on both.</p>
-<p>Sound, which the Game Boy does with four channels and a handful of registers, deserves a book of its own and is left for one.</p>
+<p>Sound, which the Game Boy does with four channels and a handful of registers, has a book of its own, <em>Beeps, Waves &amp; Noise</em>.</p>
 </section>
 <section>
 <h1 id="appendix-a-library-reference">Appendix A: Library Reference</h1>

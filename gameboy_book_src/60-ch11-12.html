@@ -223,7 +223,7 @@ rgbasm -I . -o counter.o counter.asm && rgblink -o counter.gb counter.o && rgbfi
 
 [[file print_block.asm]]
 
-<p>The <code>@</code> symbol means "the current address" in RGBDS (the Z80 guide's Pasmo uses <code>$</code> for the same thing), so <code>@ - message</code> calculates the string length automatically at assembly time. No need to count characters by hand.</p>
+<p>The <code>@</code> symbol means "the current address" in RGBDS, so <code>@ - message</code> calculates the string length automatically at assembly time. No need to count characters by hand.</p>
 
 <h3 id="example-5-wait-for-keypress">Example 5: Wait for a Button Press</h3>
 

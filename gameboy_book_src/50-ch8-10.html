@@ -206,7 +206,7 @@ debug_loop:
 <p>Confusing immediate values with memory addresses: LD A, 10 vs LD A, [10]</p>
 <p>Flag clobbering—an instruction modifies flags you were about to test (and the reverse: 16-bit INC and DEC do <em>not</em> set the Zero flag, so loop on the 16-bit counter with LD A, B / OR C)</p>
 <p>Writing to video memory while the screen is drawing: the write is silently lost, so the picture is wrong but nothing crashes</p>
-<p>Trying to store a variable in ROM (the write is ignored; keep changing data in a WRAM0 section)</p>
+<p>Trying to store a variable in ROM (on a plain 32 KB cartridge the write is ignored, on a larger one it may switch banks; either way keep changing data in a WRAM0 section)</p>
 <p class="bold-text">Key Difference: Errors often manifest far from their source. A stack imbalance might not crash until three subroutine returns later. A memory corruption might not be noticed until that memory is read minutes later. Use the print_number and print_string routines frequently during development to catch bugs early.</p>
 </section>
 

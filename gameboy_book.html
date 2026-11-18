@@ -144,7 +144,7 @@ tr.highlight-row { background: var(--surface); }
 <div class="screen">
 <h1>An Introduction to Game Boy Assembly Language</h1>
 <div class="subtitle">A Guide for High-Level Programmers</div>
-<div class="assembler">Game Boy edition of the Z80 guide by Norbert of Norbsoft</div>
+<div class="assembler">Assembler: RGBDS &middot; Emulator: any (mGBA, SameBoy, BGB)</div>
 </div>
 <div class="bezel-text">DOT MATRIX &middot; 160 &times; 144 &middot; 4 SHADES</div>
 </div>
@@ -279,8 +279,8 @@ tr.highlight-row { background: var(--surface); }
 <h1>Introduction</h1>
 <a href="#toc" class="back-to-top">[Back to Contents]</a>
 <p>If you've spent your programming career in languages like Python, JavaScript, C#, or even C, stepping into Game Boy assembly language can feel like travelling back to the bare metal origins of computing. Everything you take for granted—variables, expressions, function calls, loops—must be constructed manually from the most primitive operations imaginable.</p>
-<p>The Game Boy's processor is the Sharp SM83 (the CPU core inside the LR35902 chip), an 8-bit processor running at about 4.19 MHz. It is a cousin of the Zilog Z80 that powered the ZX Spectrum, Amstrad CPC and MSX machines, and of the Intel 8080 before it. Sharp kept most of the familiar instruction set, dropped the parts that cost chip area, and added a few new tricks of their own. The result is a CPU small enough to understand completely, in a machine that shipped over a hundred million units. Understanding Game Boy assembly gives you direct insight into how computers actually work at the lowest level.</p>
-<p>This guide is a companion to the Z80 guide for the ZX Spectrum and follows it chapter by chapter, example by example. You do not need to have read that guide, or to have seen any assembly language before. It assumes you can already program. We won't explain what a loop is conceptually—we'll show you how to build one from nothing but jumps and flags. Each section maps a familiar high-level concept to its Game Boy equivalent, highlighting what changes and what stays the same.</p>
+<p>The Game Boy's processor is the Sharp SM83 (the CPU core inside the LR35902 chip), an 8-bit processor running at about 4.19 MHz. It descends from the Intel 8080 family of 8-bit processors: Sharp kept most of that familiar instruction set, dropped the parts that cost chip area, and added a few new tricks of their own. The result is a CPU small enough to understand completely, in a machine that shipped over a hundred million units. Understanding Game Boy assembly gives you direct insight into how computers actually work at the lowest level.</p>
+<p>This guide is written for programmers who already know a high-level language. You do not need to have seen any assembly language before, but it assumes you can already program. We won't explain what a loop is conceptually—we'll show you how to build one from nothing but jumps and flags. Each section maps a familiar high-level concept to its Game Boy equivalent, highlighting what changes and what stays the same.</p>
 <p class="bold-text">Throughout this guide, all examples are written to be assembled using RGBDS (the rgbasm, rgblink and rgbfix tools), targeting the original monochrome Game Boy (DMG). This means every example can be built into a .gb ROM file and loaded directly into an emulator such as mGBA, or onto a real cartridge. Every example in this guide is also assembled and run in an emulator by an automated test suite, which checks what appears on the screen.</p>
 <p class="bold-text">How to read assembly: the six ideas you need before you start.</p>
 <ol>
@@ -315,15 +315,13 @@ tr.highlight-row { background: var(--surface); }
 
 <h2 id="setting-up-editor">Setting Up Your Editor</h2>
 <p>Before you write your first line of assembly, it helps to have an editor that understands Game Boy syntax. <a href="https://code.visualstudio.com/" target="_blank">Visual Studio Code</a> is a free, cross-platform editor that works well for this guide. Download and install it from <code>https://code.visualstudio.com/</code> for Windows, macOS, or Linux.</p>
-<p>Once VS Code is installed, add the <strong>RGBDS Z80</strong> extension by <strong>Donald Hays</strong>. It provides syntax highlighting for RGBDS <code>.asm</code> files — coloured keywords, register names, directives, and comments — making your source code much easier to read and navigate.</p>
+<p>Once VS Code is installed, add the <strong>RGBDS</strong> extension by <strong>Donald Hays</strong>. It provides syntax highlighting for RGBDS <code>.asm</code> files — coloured keywords, register names, directives, and comments — making your source code much easier to read and navigate.</p>
 <p>To install it:</p>
 <ol>
 <li>Open VS Code and press <kbd>Ctrl+Shift+X</kbd> (Windows/Linux) or <kbd>Cmd+Shift+X</kbd> (macOS) to open the Extensions panel.</li>
-<li>Search for <strong>RGBDS Z80</strong>.</li>
+<li>Search for <strong>RGBDS</strong>.</li>
 <li>Select the extension published by <strong>Donald Hays</strong> and click <strong>Install</strong>.</li>
 </ol>
-<p>Alternatively, install it from the command line:</p>
-<pre><code>code --install-extension donaldhays.rgbds-z80</code></pre>
 <p>With the extension active, <code>.asm</code> files will have coloured keywords, register names, and comments.</p>
 
 <h3>Assembling with RGBDS</h3>
@@ -441,7 +439,7 @@ rgbfix -v -p 0xFF first.gb</code></pre>
 <p class="bold-text">SP: Stack pointer—points to the current top of the stack.</p>
 <p class="bold-text">PC: Program counter—the address of the next instruction. You don't manipulate this directly; jumps and calls change it.</p>
 <p class="bold-text">F: Flags register—holds the results of comparisons and arithmetic, as a few on/off switches called flags. The important ones are zero (Z, "the last result was 0") and carry (C, "the last result didn't fit in a byte"). Chapter 4 shows how to use them to make decisions.</p>
-<div class="note"><strong>If you know the Z80, what's different?</strong> (Everyone else can skip this box.) The Game Boy CPU has no IX/IY registers, no shadow registers (so no EX or EXX), no IN/OUT instructions (hardware is reached through memory addresses instead), no DJNZ, no LDIR/LDDR block moves, and no 16-bit ADC/SBC. It adds LDH (a short form for the $FF00 hardware area), LD A,[HL+] and LD A,[HL-] (load and step the pointer), SWAP (swap the two halves of a byte), and STOP. This guide points out each difference where it first matters.</div>
+<div class="note"><strong>If you have seen other 8-bit assembly, what's different?</strong> (Everyone else can skip this box.) The Game Boy CPU has no IX/IY registers, no shadow registers (so no EX or EXX), no IN/OUT instructions (hardware is reached through memory addresses instead), no DJNZ, no LDIR/LDDR block moves, and no 16-bit ADC/SBC. It adds LDH (a short form for the $FF00 hardware area), LD A,[HL+] and LD A,[HL-] (load and step the pointer), SWAP (swap the two halves of a byte), and STOP. This guide points out each difference where it first matters.</div>
 <h3 id="data-types">Data Types</h3>
 <p>There are only two 'types': bytes (8-bit, 0–255) and words (16-bit, 0–65535). A byte can also be read as a <em>signed</em> number, –128 to 127, where a 1 in the leftmost bit means negative; the CPU stores both kinds the same way and it is up to you which you mean. Everything else—strings, arrays, structures—you build yourself from these primitives.</p>
 <pre><code><span class="comment">; Defining data in memory</span>
@@ -471,13 +469,13 @@ rgbfix -v -p 0xFF first.gb</code></pre>
 <pre><code>    <span class="keyword">LD</span> A, [my_byte]      <span class="comment">; A = the value stored at my_byte's address (e.g. 42)</span>
     <span class="keyword">LD</span> HL, my_byte       <span class="comment">; HL = the address of my_byte itself (e.g. $0300)</span></code></pre>
 <p>In the first line, the brackets tell the CPU: "go to the address labelled <code>my_byte</code>, read the byte stored there, and put it in A." In the second line, there are no brackets, so the CPU simply loads the address number into HL — it never looks at what is stored there. This is the difference between reading a value from a postbox and writing down the postbox's location. Both are useful, but mixing them up is one of the most common beginner mistakes in Game Boy programming.</p>
-<p>Notice the last line of the first listing: <code>LD A, [HL+]</code>. It reads the byte and moves the pointer on in a single instruction, which is exactly what you need when walking through an array or a string. Its mirror image <code>LD [HL+], A</code> stores and advances, and <code>[HL-]</code> steps backwards. (The Z80 has no such instruction.)</p>
+<p>Notice the last line of the first listing: <code>LD A, [HL+]</code>. It reads the byte and moves the pointer on in a single instruction, which is exactly what you need when walking through an array or a string. Its mirror image <code>LD [HL+], A</code> stores and advances, and <code>[HL-]</code> steps backwards.</p>
 <p>To verify that your loads and stores are working, use the debug routines:</p>
 <pre><code>    <span class="keyword">LD</span> A, [my_byte]      <span class="comment">; Load the value</span>
     <span class="keyword">CALL</span> print_number    <span class="comment">; Display it on screen - should show 42</span>
     <span class="keyword">LD</span> A, <span class="number">13</span>
     <span class="keyword">RST</span> <span class="number">$10</span>              <span class="comment">; Newline</span></code></pre>
-<p class="bold-text">Key Difference: There's no type checking, no automatic conversion, no protection. If you write a 16-bit value to an 8-bit location, you'll overwrite whatever's next in memory. You must track what's stored where. And if you try to store to an address in ROM, nothing happens at all—the write is silently ignored.</p>
+<p class="bold-text">Key Difference: There's no type checking, no automatic conversion, no protection. If you write a 16-bit value to an 8-bit location, you'll overwrite whatever's next in memory. You must track what's stored where. And if you try to store to an address in ROM, nothing happens at all on a plain 32 KB cartridge such as the ones in this guide—the write is silently ignored. (Larger cartridges use writes to ROM addresses to switch banks, so there the write does something, though not what you wanted.)</p>
 
 <h3 id="loading-storing-example">Try It Yourself</h3>
 <p>Copy the program below into VS Code, save it as <code>variables.asm</code> in the same folder as <code>debug_output.asm</code>, then assemble and run it. It loads and displays each of the data types defined above so you can see exactly what gets stored where. It uses the two remaining debug routines from the Debug Output Routines section:</p>
@@ -619,7 +617,7 @@ my_array:  1 2 3 4 5</code></pre>
     <span class="keyword">LD</span> A, [HL]           <span class="comment">; Read the current settings byte</span>
     <span class="keyword">OR</span> <span class="number">%00100000</span>         <span class="comment">; Force bit 5 to 1 — setting 5 is now on</span>
     <span class="keyword">LD</span> [HL], A           <span class="comment">; Write it back — the other seven settings are unchanged</span></code></pre>
-<p><strong>XOR</strong> — a bit in the result is 1 if the two inputs are <em>different</em>, and 0 if they are the same. This is why XOR A with itself always gives 0 — every bit matches, so every result bit is 0. It is the fastest way to clear A on the Game Boy (one byte long and the quickest instruction there is, versus two bytes for LD A, 0). XOR is also useful for toggling bits on and off:</p>
+<p><strong>XOR</strong> — a bit in the result is 1 if the two inputs are <em>different</em>, and 0 if they are the same. This is why XOR A with itself always gives 0 — every bit matches, so every result bit is 0. It is the usual way to clear A on the Game Boy (one byte long and as quick as an instruction gets, versus two bytes for LD A, 0). XOR is also useful for toggling bits on and off:</p>
 <pre><code>    <span class="comment">; Toggle setting number 6 — if it was on, turn it off;</span>
     <span class="comment">; if it was off, turn it on:</span>
     <span class="keyword">LD</span> A, [HL]           <span class="comment">; Read the current settings byte</span>
@@ -631,7 +629,7 @@ my_array:  1 2 3 4 5</code></pre>
     <span class="keyword">LD</span> A, [HL]           <span class="comment">; Read a byte of picture data</span>
     <span class="keyword">CPL</span>                  <span class="comment">; Invert it — every pixel flips</span>
     <span class="comment">; Now A holds the negative image of that row</span></code></pre>
-<p>The Game Boy also has an instruction that the Z80 lacks: <strong>SWAP</strong>, which exchanges the top four bits of a register with the bottom four. <code>SWAP A</code> turns %11110000 into %00001111, and %00010011 into %00110001. It is handy for splitting a byte into two hexadecimal digits.</p>
+<p>The Game Boy also has a handy instruction, <strong>SWAP</strong>, which exchanges the top four bits of a register with the bottom four. <code>SWAP A</code> turns %11110000 into %00001111, and %00010011 into %00110001. It is handy for splitting a byte into two hexadecimal digits.</p>
 <h3 id="building-an-expression">Building an Expression</h3>
 <p>Let's compute result = (10 + 5) * 2 and verify the answer:</p>
 <pre><code>    <span class="keyword">LD</span> A, <span class="number">10</span>             <span class="comment">; A = 10</span>
@@ -837,7 +835,7 @@ my_array:  1 2 3 4 5</code></pre>
     <span class="comment">; ... loop body ...</span>
     <span class="keyword">DEC</span> B                <span class="comment">; Decrement B (sets the Zero flag when it reaches 0)</span>
     <span class="keyword">JR</span> NZ, loop_start    <span class="comment">; Jump back if B != 0</span></code></pre>
-<p>This is the assembly equivalent of for (int i = 10; i &gt; 0; i--). Note that it counts down, not up, and by convention uses the B register (any register will do, since you are using plain DEC). It also decrements <em>before</em> testing, so if B is 0 when the loop starts, B wraps to 255 and the body runs 256 times. Check for zero first if the count can be zero. (If you know the Z80: it has a single instruction, DJNZ, that does the DEC B and JR NZ together. The Game Boy has no DJNZ, so you write both.)</p>
+<p>This is the assembly equivalent of for (int i = 10; i &gt; 0; i--). Note that it counts down, not up, and by convention uses the B register (any register will do, since you are using plain DEC). It also decrements <em>before</em> testing, so if B is 0 when the loop starts, B wraps to 255 and the body runs 256 times. Check for zero first if the count can be zero. (Some other 8-bit processors have a single instruction that does the DEC and the jump together; the Game Boy does not, so you write both.)</p>
 <h3 id="while-loop">While Loop</h3>
 <p>A while loop tests a condition at the top and repeats until that condition is false. Here is the general pattern — it loads the variable from memory on every iteration, checks it, does the work, stores it back, and loops:</p>
 <pre><code><span class="comment">; while (a != 0) { a--; }</span>
@@ -1344,7 +1342,7 @@ my_array:  1 2 3 4 5</code></pre>
 <p>Confusing immediate values with memory addresses: LD A, 10 vs LD A, [10]</p>
 <p>Flag clobbering—an instruction modifies flags you were about to test (and the reverse: 16-bit INC and DEC do <em>not</em> set the Zero flag, so loop on the 16-bit counter with LD A, B / OR C)</p>
 <p>Writing to video memory while the screen is drawing: the write is silently lost, so the picture is wrong but nothing crashes</p>
-<p>Trying to store a variable in ROM (the write is ignored; keep changing data in a WRAM0 section)</p>
+<p>Trying to store a variable in ROM (on a plain 32 KB cartridge the write is ignored, on a larger one it may switch banks; either way keep changing data in a WRAM0 section)</p>
 <p class="bold-text">Key Difference: Errors often manifest far from their source. A stack imbalance might not crash until three subroutine returns later. A memory corruption might not be noticed until that memory is read minutes later. Use the print_number and print_string routines frequently during development to catch bugs early.</p>
 </section>
 
@@ -1739,7 +1737,7 @@ my_array:  1 2 3 4 5</code></pre>
 
     <span class="directive">INCLUDE</span> <span class="string">"debug_output.asm"</span></code></pre>
 
-<p>The <code>@</code> symbol means "the current address" in RGBDS (the Z80 guide's Pasmo uses <code>$</code> for the same thing), so <code>@ - message</code> calculates the string length automatically at assembly time. No need to count characters by hand.</p>
+<p>The <code>@</code> symbol means "the current address" in RGBDS, so <code>@ - message</code> calculates the string length automatically at assembly time. No need to count characters by hand.</p>
 
 <h3 id="example-5-wait-for-keypress">Example 5: Wait for a Button Press</h3>
 
@@ -1811,7 +1809,9 @@ my_array:  1 2 3 4 5</code></pre>
     <span class="keyword">LD</span> A, IEF_VBLANK
     <span class="keyword">LDH</span> [rIE], A         <span class="comment">; Let VBlank wake HALT</span>
 
-    <span class="comment">; Switch the sound hardware on</span>
+    <span class="comment">; Switch the sound hardware on (off and on again first: that clears every sound register)</span>
+    <span class="keyword">XOR</span> A
+    <span class="keyword">LDH</span> [rNR52], A
     <span class="keyword">LD</span> A, <span class="number">$80</span>
     <span class="keyword">LDH</span> [rNR52], A       <span class="comment">; Master sound on</span>
     <span class="keyword">LD</span> A, <span class="number">$77</span>
@@ -2433,7 +2433,7 @@ my_array:  1 2 3 4 5</code></pre>
     <span class="keyword">RST</span> <span class="number">$10</span>                 <span class="comment">; Print character</span>
     <span class="keyword">INC</span> HL
     <span class="keyword">JR</span> print_string</code></pre>
-<p>Walking through it: <code>LD A, [HL]</code> reads one byte from the memory address that HL points to and puts it in A. The square brackets mean 'the contents of the address' — without them, <code>LD A, HL</code> would not even be a valid instruction, because A is 8 bits and HL is 16. (Where the Z80 uses round brackets, RGBDS uses square ones, because round brackets already mean "do this sum first".) OR A is a quick way to check if A is zero (it sets the Zero flag without changing A's value). RET Z returns if the Zero flag is set, meaning we've reached the null terminator. Otherwise, RST $10 prints the character, INC HL moves the pointer forward by one byte to the next character, and JR print_string jumps back to the top of the loop.</p>
+<p>Walking through it: <code>LD A, [HL]</code> reads one byte from the memory address that HL points to and puts it in A. The square brackets mean 'the contents of the address' — without them, <code>LD A, HL</code> would not even be a valid instruction, because A is 8 bits and HL is 16. (RGBDS uses square brackets for this, because round brackets already mean "do this sum first".) OR A is a quick way to check if A is zero (it sets the Zero flag without changing A's value). RET Z returns if the Zero flag is set, meaning we've reached the null terminator. Otherwise, RST $10 prints the character, INC HL moves the pointer forward by one byte to the next character, and JR print_string jumps back to the top of the loop.</p>
 
 <h3>Understanding what HL actually holds</h3>
 <p>When we write <code>LD HL, msg</code>, it is important to understand what HL contains afterwards. HL does not hold the string itself — it cannot, because HL is only two bytes wide, and a string can be any length. What HL holds is the <strong>memory address</strong> where the first character of the string is stored. It is a pointer to the beginning of the string, nothing more.</p>

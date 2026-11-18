@@ -107,7 +107,7 @@ loop_start:
     DEC B                ; Decrement B (sets the Zero flag when it reaches 0)
     JR NZ, loop_start    ; Jump back if B != 0
 [[/asm]]
-<p>This is the assembly equivalent of for (int i = 10; i &gt; 0; i--). Note that it counts down, not up, and by convention uses the B register (any register will do, since you are using plain DEC). It also decrements <em>before</em> testing, so if B is 0 when the loop starts, B wraps to 255 and the body runs 256 times. Check for zero first if the count can be zero. (If you know the Z80: it has a single instruction, DJNZ, that does the DEC B and JR NZ together. The Game Boy has no DJNZ, so you write both.)</p>
+<p>This is the assembly equivalent of for (int i = 10; i &gt; 0; i--). Note that it counts down, not up, and by convention uses the B register (any register will do, since you are using plain DEC). It also decrements <em>before</em> testing, so if B is 0 when the loop starts, B wraps to 255 and the body runs 256 times. Check for zero first if the count can be zero. (Some other 8-bit processors have a single instruction that does the DEC and the jump together; the Game Boy does not, so you write both.)</p>
 <h3 id="while-loop">While Loop</h3>
 <p>A while loop tests a condition at the top and repeats until that condition is false. Here is the general pattern — it loads the variable from memory on every iteration, checks it, does the work, stores it back, and loops:</p>
 [[asm]]

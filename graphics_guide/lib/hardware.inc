@@ -60,14 +60,15 @@ DEF OAMF_XFLIP    EQU %00100000
 DEF OAMF_PAL1     EQU %00010000   ; Use rOBP1 instead of rOBP0
 
 ; --- Joypad bits (as returned by read_joypad: 1 = pressed) ---
-DEF PADF_RIGHT    EQU %00000001
-DEF PADF_LEFT     EQU %00000010
-DEF PADF_UP       EQU %00000100
-DEF PADF_DOWN     EQU %00001000
-DEF PADF_A        EQU %00010000
-DEF PADF_B        EQU %00100000
-DEF PADF_SELECT   EQU %01000000
-DEF PADF_START    EQU %10000000
+; The same values as the standard gbdev hardware.inc: buttons in the low nibble, direction pad in the high one.
+DEF PADF_A        EQU %00000001
+DEF PADF_B        EQU %00000010
+DEF PADF_SELECT   EQU %00000100
+DEF PADF_START    EQU %00001000
+DEF PADF_RIGHT    EQU %00010000
+DEF PADF_LEFT     EQU %00100000
+DEF PADF_UP       EQU %01000000
+DEF PADF_DOWN     EQU %10000000
 
 ; --- Memory areas ---
 DEF VRAM_TILES    EQU $8000       ; 256 tiles of 16 bytes

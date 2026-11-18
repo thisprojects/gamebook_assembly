@@ -2,8 +2,8 @@
 <h1>Introduction</h1>
 <a href="#toc" class="back-to-top">[Back to Contents]</a>
 <p>If you've spent your programming career in languages like Python, JavaScript, C#, or even C, stepping into Game Boy assembly language can feel like travelling back to the bare metal origins of computing. Everything you take for granted—variables, expressions, function calls, loops—must be constructed manually from the most primitive operations imaginable.</p>
-<p>The Game Boy's processor is the Sharp SM83 (the CPU core inside the LR35902 chip), an 8-bit processor running at about 4.19 MHz. It is a cousin of the Zilog Z80 that powered the ZX Spectrum, Amstrad CPC and MSX machines, and of the Intel 8080 before it. Sharp kept most of the familiar instruction set, dropped the parts that cost chip area, and added a few new tricks of their own. The result is a CPU small enough to understand completely, in a machine that shipped over a hundred million units. Understanding Game Boy assembly gives you direct insight into how computers actually work at the lowest level.</p>
-<p>This guide is a companion to the Z80 guide for the ZX Spectrum and follows it chapter by chapter, example by example. You do not need to have read that guide, or to have seen any assembly language before. It assumes you can already program. We won't explain what a loop is conceptually—we'll show you how to build one from nothing but jumps and flags. Each section maps a familiar high-level concept to its Game Boy equivalent, highlighting what changes and what stays the same.</p>
+<p>The Game Boy's processor is the Sharp SM83 (the CPU core inside the LR35902 chip), an 8-bit processor running at about 4.19 MHz. It descends from the Intel 8080 family of 8-bit processors: Sharp kept most of that familiar instruction set, dropped the parts that cost chip area, and added a few new tricks of their own. The result is a CPU small enough to understand completely, in a machine that shipped over a hundred million units. Understanding Game Boy assembly gives you direct insight into how computers actually work at the lowest level.</p>
+<p>This guide is written for programmers who already know a high-level language. You do not need to have seen any assembly language before, but it assumes you can already program. We won't explain what a loop is conceptually—we'll show you how to build one from nothing but jumps and flags. Each section maps a familiar high-level concept to its Game Boy equivalent, highlighting what changes and what stays the same.</p>
 <p class="bold-text">Throughout this guide, all examples are written to be assembled using RGBDS (the rgbasm, rgblink and rgbfix tools), targeting the original monochrome Game Boy (DMG). This means every example can be built into a .gb ROM file and loaded directly into an emulator such as mGBA, or onto a real cartridge. Every example in this guide is also assembled and run in an emulator by an automated test suite, which checks what appears on the screen.</p>
 <p class="bold-text">How to read assembly: the six ideas you need before you start.</p>
 <ol>
@@ -40,17 +40,13 @@
 
 <h2 id="setting-up-editor">Setting Up Your Editor</h2>
 <p>Before you write your first line of assembly, it helps to have an editor that understands Game Boy syntax. <a href="https://code.visualstudio.com/" target="_blank">Visual Studio Code</a> is a free, cross-platform editor that works well for this guide. Download and install it from <code>https://code.visualstudio.com/</code> for Windows, macOS, or Linux.</p>
-<p>Once VS Code is installed, add the <strong>RGBDS Z80</strong> extension by <strong>Donald Hays</strong>. It provides syntax highlighting for RGBDS <code>.asm</code> files — coloured keywords, register names, directives, and comments — making your source code much easier to read and navigate.</p>
+<p>Once VS Code is installed, add the <strong>RGBDS</strong> extension by <strong>Donald Hays</strong>. It provides syntax highlighting for RGBDS <code>.asm</code> files — coloured keywords, register names, directives, and comments — making your source code much easier to read and navigate.</p>
 <p>To install it:</p>
 <ol>
 <li>Open VS Code and press <kbd>Ctrl+Shift+X</kbd> (Windows/Linux) or <kbd>Cmd+Shift+X</kbd> (macOS) to open the Extensions panel.</li>
-<li>Search for <strong>RGBDS Z80</strong>.</li>
+<li>Search for <strong>RGBDS</strong>.</li>
 <li>Select the extension published by <strong>Donald Hays</strong> and click <strong>Install</strong>.</li>
 </ol>
-<p>Alternatively, install it from the command line:</p>
-[[text]]
-code --install-extension donaldhays.rgbds-z80
-[[/text]]
 <p>With the extension active, <code>.asm</code> files will have coloured keywords, register names, and comments.</p>
 
 <h3>Assembling with RGBDS</h3>

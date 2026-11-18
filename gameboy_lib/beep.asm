@@ -10,7 +10,9 @@ Start:
     LD A, IEF_VBLANK
     LDH [rIE], A         ; Let VBlank wake HALT
 
-    ; Switch the sound hardware on
+    ; Switch the sound hardware on (off and on again first: that clears every sound register)
+    XOR A
+    LDH [rNR52], A
     LD A, $80
     LDH [rNR52], A       ; Master sound on
     LD A, $77

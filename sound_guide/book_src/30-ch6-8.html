@@ -1,0 +1,148 @@
+<section>
+<h1 id="6-frequency-sweep">6. Frequency Sweep</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="6-in-high-level-languages">In High-Level Languages</h2>
+<p>To slide a pitch you change the frequency over time, one small step per update. Libraries offer a ramp, but under it is the same loop: every few milliseconds compute a new frequency and hand it to the oscillator.</p>
+[[text]]
+for each update:
+    osc.frequency = osc.frequency * 1.02          # up a little
+[[/text]]
+<p>That is a job for the program, repeated many times a second, for as long as the slide lasts.</p>
+<h2 id="6-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>Channel 1 has a sweep unit that does this slide in hardware. The program starts the note and the sweep register <code>rNR10</code> (<code>$FF10</code>) says how the pitch should move afterwards:</p>
+[[text]]
+bit 7     bits 6-4      bit 3          bits 2-0
+(unused)  step time     direction      shift
+          0 = no sweep  0 = rising     0 to 7
+          else n/128 s  1 = falling
+[[/text]]
+<p>Each step, the 11-bit pitch value <em>x</em> from Chapter 2 is changed by a fraction of itself:</p>
+[[text]]
+rising:   x = x + x / 2^shift
+falling:  x = x - x / 2^shift
+[[/text]]
+<p>so a <em>shift</em> of 5 means each step moves the value by 1/32, and a shift of 1 by a half. The step time is in 128ths of a second, so <code>1</code> means a step every 7.8 ms and <code>7</code> every 55 ms. A step time of 0 turns the sweep off. Three effects, all done in this way, as the example plays them:</p>
+<table>
+<tr><th>Effect</th><th><code>NR10</code></th><th>Decoded</th><th>Start pitch</th></tr>
+<tr><td>Jump</td><td><code>$16</code></td><td>Step every 7.8 ms, rising, shift 6: each step adds 1/64</td><td><code>$500</code> (170 Hz)</td></tr>
+<tr><td>Laser</td><td><code>$2D</code></td><td>Step every 15.6 ms, falling, shift 5: each step takes off 1/32</td><td><code>$7A0</code> (1365 Hz)</td></tr>
+<tr><td>Slide</td><td><code>$7F</code></td><td>Step every 55 ms, falling, shift 7: each step takes off 1/128</td><td><code>$7C0</code> (2048 Hz)</td></tr>
+</table>
+<p>The sweep happens to the 11-bit <em>value</em>, not to the frequency you hear, and the relation between them (<code>131072 / (2048 &minus; x)</code>) is not a straight line. A rising sweep therefore starts slowly and ends in a rush; a falling one dives and then lingers. The figure shows the three effects as the emulated chip played them:</p>
+[[fig sweep_pitch | Pitch against time for the three sweeps, measured from the emulator's sound output. Note the log scale of the pitch axis.]]
+<p>One more rule makes a good sound effect for nothing. If a <em>rising</em> sweep tries to take the value above 2047, the hardware gives up and switches the channel off. That is how the jump ends: it climbs and then simply stops, without any envelope or length. A falling sweep cannot do this; it comes to rest near the bottom of the range and goes on playing until the envelope finishes it, which is why the laser and slide use envelopes of about the right duration.</p>
+
+<h3 id="6-example">A complete example</h3>
+<p>This program plays the three effects in turn, ninety frames apart. It sets the sweep, the envelope and the start pitch from a four-byte table entry, and then does nothing at all to the pitch: the hardware slides it.</p>
+[[file sweep_demo.asm]]
+<p><strong>What you hear:</strong> a rising &ldquo;boing&rdquo; that stops as it runs off the top, a falling &ldquo;pew&rdquo; of a laser, and a long glide down. The tests measure the pitch every few frames from the recording: it rises for the jump (and the channel is silent after it), falls for the laser, and falls steadily for the slide, starting above 1500 Hz.</p>
+<p>The sweep belongs to the channel, not to the note. After a sweep effect has played, <code>rNR10</code> is still set, and the next note on channel 1 slides too unless the program writes <code>0</code> back to it. Chapter 10's music engine does this every time it plays a note.</p>
+<p class="bold-text">Key fact: channel 1's sweep unit changes the pitch by itself, a fraction at a time, and a rising sweep that passes the top of the range ends the note. A pitch change is one byte to <code>rNR10</code> and a note.</p>
+<h3 id="6-exercises">Try it yourself</h3>
+<ol>
+<li>Make a laser that is twice as fast. Which field of <code>NR10</code> do you change?</li>
+<li>Make the jump start lower, from C3 (<code>$416</code>). Does it end sooner or later? Why?</li>
+<li>Put <code>NR10</code> at <code>$00</code> in the laser's table entry. What do you hear?</li>
+</ol>
+</section>
+
+<section>
+<h1 id="7-the-wave-channel">7. The Wave Channel</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="7-in-high-level-languages">In High-Level Languages</h2>
+<p>When a library offers a custom oscillator, you give it a list of numbers describing one cycle of the wave, and it plays the list over and over at the right speed. This is <em>wavetable synthesis</em>:</p>
+[[text]]
+table = [sin(2 * pi * i / 32) for i in range(32)]      # one cycle, 32 numbers
+osc = WavetableOscillator(table, frequency = 220)
+[[/text]]
+<h2 id="7-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>Channel 3 is exactly that. Instead of a fixed square wave it plays a table you provide: <strong>32 samples of 4 bits each</strong>, kept in 16 bytes of <em>wave RAM</em> at <code>$FF30-$FF3F</code>. Each sample is a level from 0 to 15, two to a byte, with the first sample in the high four bits. The channel reads the 32 samples in order, then starts again, and the faster it does so the higher the note.</p>
+
+<h3 id="7-drawing-a-wave">Drawing a wave by hand</h3>
+<p>A sine wave is smooth, and four bits give only 16 levels, so a sine here is a staircase. The table is a recipe: sample <em>i</em> is <code>7.5 + 7.5 &times; sin(2&pi;(i + 0.5) / 32)</code>, rounded. The first few, worked out:</p>
+[[text]]
+i = 0:  sin(2pi * 0.5 / 32) = 0.10   ->   7.5 + 0.7  = 8.2   -> 8
+i = 1:  sin(2pi * 1.5 / 32) = 0.29   ->   7.5 + 2.2  = 9.7   -> 10  ($A)
+i = 2:  sin(2pi * 2.5 / 32) = 0.47   ->   7.5 + 3.5  = 11.0  -> 11  ($B)
+i = 3:  sin(2pi * 3.5 / 32) = 0.63   ->   7.5 + 4.8  = 12.3  -> 12  ($C)
+
+first two bytes:  $8A, $BC       (samples 0 and 1, then samples 2 and 3)
+[[/text]]
+<p>The other three shapes are even easier: a triangle counts up 0 to 15 and back down, a sawtooth counts up 0 to 15 two samples at a time and drops, and a pulse is 15 for the first eight samples and 0 for the rest. The tables are in the example below. The figure shows what each one sounded like through the emulated chip, both the staircase and the sharp edges:</p>
+[[fig wave_shapes | The sound of channel 3 playing each wave at A3 (220 Hz), measured from the emulator: two cycles each.]]
+
+<h3 id="7-registers">The channel's registers</h3>
+<table>
+<tr><th>Register</th><th>Address</th><th>Meaning</th></tr>
+<tr><td><code>rNR30</code></td><td><code>$FF1A</code></td><td>Bit 7: the channel on (1) or off (0)</td></tr>
+<tr><td><code>rNR31</code></td><td><code>$FF1B</code></td><td>Length, 0&ndash;255 (Chapter 5)</td></tr>
+<tr><td><code>rNR32</code></td><td><code>$FF1C</code></td><td>Volume, in bits 6&ndash;5: <code>%00</code> silent, <code>%01</code> full, <code>%10</code> half, <code>%11</code> a quarter</td></tr>
+<tr><td><code>rNR33</code>, <code>rNR34</code></td><td><code>$FF1D</code>, <code>$FF1E</code></td><td>Pitch and start, as for channels 1 and 2</td></tr>
+</table>
+<p>Three differences from the square channels matter. First, <strong>there is no envelope</strong>: the volume is one of four fixed levels (silent, full, half, a quarter), chosen in <code>NR32</code>, and a note neither fades nor swells unless the program changes <code>NR32</code> in step with the frame. Second, <strong>the channel must be off to change its wave</strong>: <code>wave_load</code> switches channel 3 off, copies the 16 bytes, and switches it on again. Third, <strong>the pitch is one octave lower</strong>. The channel plays 32 samples per cycle, so its frequency is</p>
+[[text]]
+frequency = 65536 / (2048 - x)  Hz        (channels 1 and 2: 131072 / (2048 - x))
+[[/text]]
+<p>The same value <em>x</em> therefore gives a note an octave lower than on channel 1 or 2. The simple answer is to ask for the note an octave up: the example plays A3 by passing <code>A3 + 12</code> to <code>note_freq</code>. (This is also why channel 3 is the usual choice for bass: its range reaches an octave lower.)</p>
+[[part sound.asm | ; --- Copy 16 bytes | ; --- The pitch value of every note]]
+
+<h3 id="7-example">A complete example</h3>
+<p>This program loads each of four waves in turn and plays A3 with it for 1.25 seconds:</p>
+[[file wave_demo.asm]]
+<p><strong>What you hear:</strong> the same pitch four times in four voices: a smooth, flute-like sine; a slightly brighter triangle; a rasping sawtooth; and a thin pulse. The tests check that all four are A3 (220 Hz) and then measure each wave's makeup: the sine is nearly pure, the triangle has only odd harmonics falling quickly, the sawtooth has all of them falling slowly, and the quarter pulse lacks its fourth harmonic. The four tables are also checked against their formulae.</p>
+<p class="bold-text">Key fact: channel 3 plays 32 four-bit samples that you write. It has no envelope and one octave less pitch for the same number; switch it off to change the wave.</p>
+<h3 id="7-exercises">Try it yourself</h3>
+<ol>
+<li>Draw the samples for a &ldquo;half-sine&rdquo; (the top half of a sine wave, then flat) and play it. What does it sound like next to the sine?</li>
+<li>Change <code>WAVE_FULL</code> to <code>WAVE_HALF</code>. By how much does the volume fall?</li>
+<li>Make the wave louder at the start and quieter later by changing <code>rNR32</code> during the note. How often must you change it, and what does the frame counter of Chapter 9 give you?</li>
+</ol>
+</section>
+
+<section>
+<h1 id="8-the-noise-channel">8. The Noise Channel</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="8-in-high-level-languages">In High-Level Languages</h2>
+<p>Noise is just random numbers: fill a buffer with them and play it. A drum or an explosion is noise with a volume envelope, perhaps filtered:</p>
+[[text]]
+for each sample:
+    out = random() * gain(t)          # hiss
+[[/text]]
+<h2 id="8-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>Channel 4 makes noise with a <em>linear feedback shift register</em>, a 15-bit pattern of bits that is shifted along at a steady rate; each time it moves, a new bit is fed in, made from two of the old ones, in a way that makes the sequence look random and take 32,767 steps to repeat. The channel's output is one bit of it. The program controls two things: how fast the register is clocked, and how long the pattern is.</p>
+<p>Both are in <code>rNR43</code> (<code>$FF22</code>):</p>
+[[text]]
+bits 7-4   bit 3        bits 2-0
+shift s    width        divisor r
+0 to 13    0 = 15 bits  0 to 7  (0 counts as 0.5)
+           1 = 7 bits
+
+clock = 262144 / (r * 2^s)  Hz
+[[/text]]
+<p>A high clock rate gives a high, hissy noise; a low one a rumble. The <em>width</em> bit shortens the pattern from 32,767 steps to 127. A pattern of 127 steps comes round about 258 times as often, and a repeat that fast is heard as a pitch: such a noise has a buzzing tone, at the clock rate divided by 127.</p>
+<p>Channel 4 has an envelope (<code>rNR42</code>, <code>$FF21</code>, as in Chapter 4), a length (<code>rNR41</code>, Chapter 5) and a start bit in <code>rNR44</code> (<code>$FF23</code>), but no pitch registers. Five sounds, each written as an envelope byte and a noise byte:</p>
+<table>
+<tr><th>Sound</th><th><code>NR42</code></th><th><code>NR43</code></th><th>Why</th></tr>
+<tr><td>Kick</td><td><code>$F2</code></td><td><code>$63</code></td><td>Shift 6, divisor 3: clock 1365 Hz, a low rumble; falls in 0.5 s</td></tr>
+<tr><td>Snare</td><td><code>$C1</code></td><td><code>$33</code></td><td>Shift 3, divisor 3: clock 10.9 kHz, a mid crack, fading in 0.2 s</td></tr>
+<tr><td>Hi-hat</td><td><code>$71</code></td><td><code>$11</code></td><td>Shift 1, divisor 1: clock 131 kHz, the highest hiss, fading in 0.1 s</td></tr>
+<tr><td>Explosion</td><td><code>$F7</code></td><td><code>$67</code></td><td>Shift 6, divisor 7: clock 585 Hz, and a 1.6 s fade</td></tr>
+<tr><td>Buzz</td><td><code>$F2</code></td><td><code>$2B</code></td><td>Shift 2, divisor 3, width bit set: clock 21.8 kHz repeating every 127 steps: a 172 Hz rasp</td></tr>
+</table>
+<p>The drum sounds make a useful rule of thumb. The higher the clock, the lighter the drum; the shorter the envelope, the sharper. Percussion in many a Game Boy song is these two bytes and nothing else.</p>
+
+<h3 id="8-example">A complete example</h3>
+<p>This program plays the five sounds in turn, a second each:</p>
+[[file noise_demo.asm]]
+<p><strong>What you hear:</strong> a thud, a snap, a tick, a long rumble and a buzz you could hum along with. The tests measure what the chip produced: the higher the setting, the higher the sound's brightness (kick, then snare, then hat); the hat dies in under ten frames and the explosion goes on for more than twenty-five; the buzz repeats at its 127-step period, which can be seen as a strong correlation between the recording and itself 127 clock steps later, and the ordinary noises do not.</p>
+<p class="bold-text">Key fact: the noise channel has no pitch registers. Its character comes from the clock (shift and divisor), the width bit, and the envelope.</p>
+<h3 id="8-exercises">Try it yourself</h3>
+<ol>
+<li>Make a deeper kick: change <code>$63</code> to <code>$73</code>. Is the clock higher or lower?</li>
+<li>Make a &ldquo;laser noise&rdquo; sweep: play the buzz with several different <code>NR43</code> values, one every frame. What do you hear?</li>
+<li>Add an open hi-hat: the same <code>NR43</code> as the closed one but a longer envelope. Which byte of the table changes?</li>
+</ol>
+</section>

@@ -1,0 +1,129 @@
+<section>
+<h1 id="3-square-waves-and-duty">3. Square Waves &amp; Duty</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="3-in-high-level-languages">In High-Level Languages</h2>
+<p>An oscillator comes with a choice of shapes: sine, triangle, sawtooth, square. The shape is the <em>timbre</em>, what makes a flute sound unlike a violin playing the same note. A software synthesiser evaluates the chosen formula for every sample:</p>
+[[text]]
+osc = Oscillator(type = "square", frequency = 440)
+osc.pulse_width = 0.25                  # some libraries let you change the shape of the square
+[[/text]]
+<p>Changing the shape is a change of one number, and the cost is a different calculation for each of the thousands of samples per second.</p>
+<h2 id="3-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>Channels 1 and 2 can make only one kind of wave, the square wave, but they can change how long it stays high. The fraction of each cycle that the wave is high is its <strong>duty cycle</strong>, and there are four choices, set by the top two bits of <code>rNR11</code> (channel 1) or <code>rNR21</code> (channel 2):</p>
+<table>
+<tr><th>Bits 7&ndash;6</th><th>Name in <code>hardware.inc</code></th><th>High for</th><th>Sounds like</th></tr>
+<tr><td><code>%00</code></td><td><code>DUTY_12</code></td><td>1/8 of the cycle</td><td>Thin, reedy, a little nasal</td></tr>
+<tr><td><code>%01</code></td><td><code>DUTY_25</code></td><td>2/8</td><td>Full but bright: the classic lead</td></tr>
+<tr><td><code>%10</code></td><td><code>DUTY_50</code></td><td>4/8</td><td>Hollow, like a clarinet</td></tr>
+<tr><td><code>%11</code></td><td><code>DUTY_75</code></td><td>6/8</td><td>Sounds the same as 25%</td></tr>
+</table>
+<p>The last row is not a mistake. Turning a wave upside down does not change how it sounds, and a wave that is high for three quarters of the time is a wave that is low for a quarter of the time, turned upside down. So there are really three timbres to choose from, not four.</p>
+
+<h3 id="3-why-shape-matters">Why the shape changes the sound</h3>
+<p>The note's <em>pitch</em> depends only on how often the wave repeats. Its <em>character</em> depends on the shape within each repeat, and a thin pulse and a fat one repeat equally often. Here is the same note, A4, drawn from the actual output of channel 1 playing each duty in turn:</p>
+[[fig duty_wave | The sound of channel 1 at each duty cycle, measured from the emulator: three cycles of A4 (440 Hz). The pitch is the same; the shape inside the cycle is not.]]
+<p>A 50% wave contains only the odd harmonics of its pitch (the extra tones at three, five, seven times the frequency, and so on), which is what gives it a hollow sound. A thin pulse contains many more of them, relatively stronger, and sounds brighter and more nasal. The duty cycle is the one real instrument change a square channel has, and switching it from one note to the next gives a melody a little variety.</p>
+<p>Channel 2 has the same two bytes at different addresses, <code>rNR21</code> (<code>$FF16</code>) and <code>rNR22</code> (<code>$FF17</code>), then <code>rNR23</code> and <code>rNR24</code>. The registers are in the same order as channel 1's, but with no sweep register in front, which is why channel 2 starts at <code>$FF16</code> rather than <code>$FF15</code>: that address is unused.</p>
+
+<h3 id="3-example">A complete example</h3>
+<p>This program plays A4 four times on channel 1, once with each duty, and prints the setting. It changes only <code>rNR11</code> between the notes; the pitch and envelope are written each time.</p>
+[[file duty_demo.asm]]
+<p><strong>What you hear:</strong> the same note, four times, changing from thin to full to hollow and back to the sound of the second. The tests record each note and measure it. The pitch is 440 Hz every time, and the wave is high for 12.5%, 25%, 50% and 75% of each cycle, to within two percent.</p>
+<p>Notice how the label is found: the four strings are the same length (five characters and a zero), so the address of string <em>n</em> is the address of the first plus six times <em>n</em>. The program works out &times;6 as <code>(2n + n) &times; 2</code> with two additions and a doubling. Tables of equal-sized entries are the usual way to avoid any search.</p>
+<p class="bold-text">Key fact: a square channel's timbre is its duty cycle, two bits of <code>NRx1</code>. It never changes the pitch, and 75% sounds the same as 25%.</p>
+<h3 id="3-exercises">Try it yourself</h3>
+<ol>
+<li>Play the scale from Chapter 2 with <code>DUTY_12</code>, then with <code>DUTY_50</code>. Which do you prefer for a melody?</li>
+<li>Change the program so the duty alternates on every note of the scale. How many bytes of table do you need?</li>
+<li>The program writes the envelope every time through the loop. Move that write above the loop so it happens once. Does the sound change? Why or why not?</li>
+</ol>
+</section>
+
+<section>
+<h1 id="4-volume-envelopes">4. Volume Envelopes</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="4-in-high-level-languages">In High-Level Languages</h2>
+<p>A note that starts and stops at full volume sounds like a switch. Real instruments have a shape in time: a piano is loudest at the start and dies away, an organ swells and holds. Audio libraries describe it as an <em>envelope</em>, a gain that changes while the note plays, often attack, decay, sustain and release:</p>
+[[text]]
+for each sample at time t:
+    out = wave(t) * gain(t)         # gain(t) goes 1.0 -> 0.0 over the note
+[[/text]]
+<h2 id="4-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>Channels 1, 2 and 4 each carry a small envelope generator. You do not give it a curve; you give it three numbers and it steps the volume up or down by itself. They share one register, <code>rNRx2</code> (<code>rNR12</code>, <code>rNR22</code>, <code>rNR42</code>):</p>
+[[text]]
+bits 7-4   bit 3        bits 2-0
+volume     direction    step time
+0 to 15    1 = rising   0 = none, else n/64 second per step
+           0 = falling
+[[/text]]
+<p>The channel starts at the volume in the top four bits. Every <em>step time</em> sixty-fourths of a second it moves one level in the chosen direction, and stops when it reaches 0 or 15. So the length of a fade is <em>volume &times; step time</em> sixty-fourths of a second. Four examples, all worked out:</p>
+<table>
+<tr><th>Value</th><th>Meaning</th><th>Takes</th></tr>
+<tr><td><code>$F1</code></td><td>Start at 15, fall, one level every 1/64 s</td><td>15 &times; 1/64 = 0.23 s: a pluck</td></tr>
+<tr><td><code>$F7</code></td><td>Start at 15, fall, one level every 7/64 s</td><td>15 &times; 7/64 = 1.6 s: a long fade</td></tr>
+<tr><td><code>$0B</code></td><td>Start at 0, <em>rise</em>, one level every 3/64 s</td><td>15 &times; 3/64 = 0.7 s: a swell, then it holds</td></tr>
+<tr><td><code>$C0</code></td><td>Start at 12, no envelope (step time 0)</td><td>Never changes: a steady tone</td></tr>
+</table>
+<p>The envelope is read when the note <em>starts</em>, so set it before the trigger. A step time of zero switches the envelope off and leaves the volume where it began. That is all the control there is: no attack-decay-sustain curve, only a straight line up or down at the speed you pick. Even so, careful use of it gives a surprising range:</p>
+[[fig envelope_shapes | The loudness of channel 2 over two seconds for each envelope, measured from the emulator output. Each step down or up is one volume level.]]
+
+<h3 id="4-the-dac">The silent-channel rule</h3>
+<p>There is one trap. A channel's output goes through a small converter (the <em>DAC</em>) that is switched on by the envelope register, and it counts as on only if the top five bits of <code>NRx2</code> are not all zero: any volume above zero, or the direction bit set. A value like <code>$00</code> or <code>$07</code> (start at zero, falling) switches the whole channel off. The swell above is <code>$0B</code>, not <code>$03</code>, for exactly this reason: with the rising bit set, it counts as on even though it starts at silence. Writing <code>$00</code> to a playing channel silences it at once, but it also switches the output off, and on a real console that can make a small click as the level steps. A quieter way is to write <code>$08</code> (volume 0, rising, no step time, output still on) and then <em>start the channel again</em>: since the envelope is read only when a note starts, the register alone changes nothing until then. Chapter 10 does this for rests.</p>
+<p>Two volume controls are in play, and it helps to keep them apart. The <em>envelope</em> is a per-channel volume with 16 levels that changes during a note. The master volume in <code>rNR50</code> has 8 levels and applies to everything. Channel 3 has no envelope; it has a coarser fixed volume of its own (Chapter 7).</p>
+
+<h3 id="4-example">A complete example</h3>
+<p>This program plays A4 on channel 2 four times, two seconds each, once with each of the four envelopes above:</p>
+[[file envelope_demo.asm]]
+<p><strong>What you hear:</strong> a quick pluck, then a long gentle fade, then a note that grows out of silence and holds, then a steady tone. The tests listen to the loudness of each: the pluck is silent within 18 frames, the fade is still audible after 0.8 s, the swell grows from silence and then holds, and the steady tone is at exactly 12/15 of full volume throughout.</p>
+<p class="bold-text">Key fact: an envelope is three numbers in one byte: where to start, which way to go, how fast. The hardware does the rest, so a note can fade without the program lifting a finger.</p>
+<h3 id="4-exercises">Try it yourself</h3>
+<ol>
+<li>Design an envelope for a snappy bass note: loud, gone in a quarter of a second. Which byte do you use, and which step times are too slow?</li>
+<li>Change the swell to <code>$09</code>. How long does it take to reach full volume now? (Work it out first, then listen.)</li>
+<li>What happens if you start the steady note with <code>$00</code>? Try it, then explain it using the silent-channel rule.</li>
+</ol>
+</section>
+
+<section>
+<h1 id="5-length-and-sound-effects">5. Length &amp; Sound Effects</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="5-in-high-level-languages">In High-Level Languages</h2>
+<p>A sound effect is a clip, and a clip has a length because the data runs out: the file holds 94 milliseconds of samples, so the sound lasts 94 milliseconds. You never say &ldquo;stop&rdquo;. You say <code>play(coin)</code> and the library drops the sound when the samples are used up.</p>
+[[text]]
+play(coin)          # the clip is 0.1 s long, so it ends by itself
+[[/text]]
+<h2 id="5-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>A channel has no clip. A note keeps sounding for as long as the channel is on, even at volume zero; to end it you must either switch the channel off or stop it from the program. For short sounds there is a better answer: a <strong>length counter</strong> in each channel that counts down while the note plays and switches the channel off when it reaches zero.</p>
+<p>It takes two things. The length itself goes in the low six bits of <code>NRx1</code> (the low eight bits of <code>rNR31</code> for channel 3). And the counter is only used if you ask for it, with bit 6 of <code>NRx4</code>:</p>
+[[text]]
+duration = (64 - length) / 256 second       channels 1, 2 and 4   (length 0 to 63)
+duration = (256 - length) / 256 second      channel 3             (length 0 to 255)
+[[/text]]
+<p>The counter runs at 256 steps a second, so the longest sound a square or noise channel can make by itself is a quarter of a second (length 0), and the shortest a 256th of a second. A length of 52 on channel 4 is <code>(64 &minus; 52) / 256</code>, or 47 ms. If the length-enable bit is not set the counter is ignored, and the note plays until the envelope or the program stops it.</p>
+
+<h3 id="5-recipes">Building an effect</h3>
+<p>A sound effect, then, is a handful of the choices you have met: a pitch (Chapter 2), a duty (3), an envelope (4) and a length. Three small ones:</p>
+<ul>
+<li><strong>Blip</strong>: a short high square note. Channel 1, 25% duty, C6, full volume with no fade, length 56 (31 ms). A button press or menu cursor.</li>
+<li><strong>Coin</strong>: two notes, B5 then E6, a fourth apart. The first is cut short by its length (94 ms), the second (156 ms) fades. The second note starts six frames after the first, so the program needs a timer.</li>
+<li><strong>Bonk</strong>: a 47 ms burst of low noise on channel 4, so that it does not disturb any music on the other channels.</li>
+</ul>
+<p>The coin shows the one new idea: <em>doing something later</em>. The program has no sleep, so it stores a countdown of frames in memory and tests it once per frame:</p>
+[[part sfx_demo.asm | MainLoop: | ; --- Coin: B5]]
+<p>When the A button goes down, <code>coin</code> plays the first note and sets <code>wCoin</code> to 6. Each frame the countdown goes down by one, and when it reaches zero <code>CALL Z, coin_second</code> plays the second. The program is never waiting; it is running a loop sixty times a second and each pass takes one step. Chapter 9 makes the idea systematic.</p>
+
+<h3 id="5-example">A complete example</h3>
+<p>A plays the coin, B plays the blip and START plays the bonk. None of the three needs the program to switch anything off:</p>
+[[file sfx_demo.asm]]
+<p><strong>What you hear:</strong> three distinct sounds, each over in well under a fifth of a second. The tests press each button in turn and measure the result. The coin's two notes are 988 Hz and 1318 Hz, and the whole sound is over in about fifteen frames. The blip lasts two frames and has a 25% wave. The bonk has no steady pitch (it is noise) and lasts a few frames. (A length counter begins counting at the next tick of its 256 Hz clock, so a sound can end up to a fraction of a frame shorter than the formula says.)</p>
+<p class="bold-text">Key fact: set a length and the length-enable bit, and a channel stops itself. A sound effect is a pitch, a shape, an envelope and a length, each a byte or two, written once.</p>
+<h3 id="5-exercises">Try it yourself</h3>
+<ol>
+<li>Add a &ldquo;power-up&rdquo; effect: three rising notes, one every four frames. How many countdown variables do you need?</li>
+<li>Make the blip lower and longer: C4 for about a tenth of a second. Which value goes in <code>NR11</code>?</li>
+<li>Remove <code>NRX4_LENGTH</code> from the blip. What happens, and what stops the sound?</li>
+</ol>
+</section>

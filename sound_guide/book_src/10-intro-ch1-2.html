@@ -1,0 +1,154 @@
+<section>
+<h1 id="introduction">Introduction</h1>
+
+<p>The original Game Boy makes sound without ever handling a sound. There is no sample buffer, no mixer and no sound card. The processor is far too slow to work out a waveform one sample at a time: at CD quality that would be 44,100 numbers a second, and nothing would be left over for the game. Instead the console has four small synthesiser circuits, called <strong>channels</strong>, built into the chip. Once the program has said what kind of wave, how high, how loud and for how long, a channel makes its sound entirely on its own, and goes on making it while the processor does something else.</p>
+
+<p>That changes how you think about sound. On most machines you produce the signal. On the Game Boy you <em>describe</em> it: &ldquo;this note, that shape, fade out over a second&rdquo;, and the hardware plays it. What is left for the program is timing: starting the right note at the right moment, sixty times a second. This book teaches sound the way the machine wants it taught: ten topics, each starting with the job you want done and showing the Game Boy's own way of doing it, and a last chapter that adds the buttons and turns the console into an instrument. Graphics have their own companion book, <em>Pixels, Tiles &amp; Sprites</em>, and the link cable and cartridge hardware are not covered.</p>
+
+<h2 id="what-you-should-know">What you should know first</h2>
+<p>This book assumes you can read basic Game Boy (SM83) assembly: registers <code>A</code>, <code>B</code>, <code>C</code>, <code>D</code>, <code>E</code>, <code>H</code>, <code>L</code>, the 16-bit pairs such as <code>HL</code>, <code>LD</code>, <code>ADD</code>, <code>CP</code>, the flags, <code>JR</code> and <code>CALL</code>. If you can follow a loop that counts from 1 to 10, you are ready. Everything to do with sound is explained from scratch, and you need no music theory beyond knowing that a higher note is a faster vibration.</p>
+
+<h2 id="the-four-channels">The four channels</h2>
+<p>Every sound the Game Boy makes is the sum of four channels, each a different kind of instrument:</p>
+<table>
+<tr><th>Channel</th><th>Kind</th><th>What it is good for</th></tr>
+<tr><td>1</td><td>Square wave, with a frequency sweep</td><td>Melodies, and effects that slide: jumps, lasers</td></tr>
+<tr><td>2</td><td>Square wave</td><td>Harmony, arpeggios, short blips</td></tr>
+<tr><td>3</td><td>A wave you draw yourself: 32 samples</td><td>Bass, and unusual tones</td></tr>
+<tr><td>4</td><td>Noise</td><td>Drums, explosions, wind</td></tr>
+</table>
+<p>A <em>square wave</em> is the simplest sound there is: the speaker is pushed out, held, pulled back, held, and so on, so the signal is either high or low and nothing in between. It is the buzzy sound of the Game Boy that everyone knows. Each channel has its own handful of registers, and each can be sent to the left speaker, the right, or both.</p>
+
+<h2 id="the-sound-memory-map">The sound memory map</h2>
+<p>As with the screen, all of it is controlled by writing to memory addresses. The sound hardware lives from <code>$FF10</code> to <code>$FF3F</code>:</p>
+<table>
+<tr><th>Address</th><th>What it holds</th></tr>
+<tr><td><code>$FF10-$FF14</code></td><td>Channel 1: sweep, duty and length, envelope, pitch and start</td></tr>
+<tr><td><code>$FF16-$FF19</code></td><td>Channel 2: the same, without a sweep</td></tr>
+<tr><td><code>$FF1A-$FF1E</code></td><td>Channel 3: on/off, length, volume, pitch and start</td></tr>
+<tr><td><code>$FF20-$FF23</code></td><td>Channel 4: length, envelope, noise setting and start</td></tr>
+<tr><td><code>$FF24-$FF26</code></td><td>Master controls: volume, which channel goes to which speaker, and the on/off switch</td></tr>
+<tr><td><code>$FF30-$FF3F</code></td><td>Wave RAM: the 32 samples that channel 3 plays</td></tr>
+</table>
+<p>The registers are named after their address: <code>rNR11</code> is the &ldquo;NR&rdquo; (sound) register of channel 1, number 1. Appendix B lists them all. Many sound registers are partly or entirely <em>write-only</em>: reading one back gives you only some of what you wrote, and the rest as ones. If you need to know a note's pitch later, keep your own copy in RAM.</p>
+
+<h2 id="how-to-build">Building and running the examples</h2>
+<p>The programs are assembled with RGBDS, the standard Game Boy toolchain. Every program in this book is a complete file in the <code>examples/</code> folder, and every routine is in <code>lib/</code>. To build one:</p>
+[[text]]
+rgbasm -I lib/ -o beep_demo.o examples/beep_demo.asm
+rgblink -o beep_demo.gb beep_demo.o
+rgbfix -v -p 0xFF beep_demo.gb
+[[/text]]
+<p>or simply run <code>make beep_demo.gb</code> in the <code>examples</code> folder, and <code>make run-beep_demo</code> to open it in an emulator. Turn the volume up. The listings you read here are not retyped: the book is built from the same files that an automated test suite assembles and runs on an emulated Game Boy, recording the sound it makes and checking its pitch, its shape and its timing against calculations of what it should be.</p>
+
+<h2 id="the-program-template">The shape of every program</h2>
+<p>Every example begins with the same few lines, kept in <code>boot.inc</code>:</p>
+[[file boot.inc]]
+<p>The Game Boy starts executing at <code>$100</code>, where there are only four bytes of room before the cartridge header, so the program jumps over it. <code>rgbfix</code> fills the header in afterwards. Code then starts at <code>$150</code>, with the stack placed at the top of the first block of work RAM. <code>hardware.inc</code> gives names to the hardware registers (<code>rNR12</code>, <code>rNR52</code> and so on) and is used with <code>LDH</code>, the short instruction for the <code>$FF00</code> page.</p>
+<p>The routines are plain files you <code>INCLUDE</code> at the end of a program: <code>sound.asm</code> for the basics, <code>frame.asm</code> for keeping time, <code>music.asm</code> for songs, and so on. Appendix A lists them all. Sound is not something you can look at, so each example also prints a line or two of text saying what it is playing; the small <code>screen.asm</code> and <code>text.asm</code> routines do that, and you can ignore them until you want to copy them. Each chapter ends with a few exercises that use only what has been covered so far.</p>
+</section>
+
+<section>
+<h1 id="1-sound-on-the-game-boy">1. Sound on the Game Boy</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="1-in-high-level-languages">In High-Level Languages</h2>
+<p>You play a sound by asking for it by name. Somewhere underneath, a library has decoded a file into a long list of <em>samples</em>, numbers describing the position of the speaker at each instant, and hands them to the sound card at a fixed rate:</p>
+[[text]]
+sound = load("beep.wav")        # thousands of samples, decoded for you
+sound.play()                    # the library feeds them to the sound card
+
+# what the sound card is really doing, 44100 times a second:
+for each tick:
+    speaker = sum of the next sample of every sound that is playing
+[[/text]]
+<p>The program owns every sample. To make a new sound, it computes the list; to change a sound, it recomputes it. That is simple to reason about, but it is expensive: one second of mono sound at 44,100 samples is 44,100 numbers that must be found in time, every second. The Game Boy was designed to avoid exactly that cost.</p>
+
+<h2 id="1-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>The Game Boy has no sample list. It has four circuits that each generate their own wave, and a few registers to tell them what to do. A program makes a sound in three steps: switch the sound hardware on, set up a channel, and start it. After that the channel plays by itself.</p>
+
+<h3 id="1-switching-on">Switching the sound on</h3>
+<p>There are three master registers, and they are the first things any program sets:</p>
+<table>
+<tr><th>Register</th><th>Address</th><th>Meaning</th></tr>
+<tr><td><code>rNR52</code></td><td><code>$FF26</code></td><td>Bit 7: the whole sound chip on (1) or off (0). Bits 3&ndash;0, when read: which of channels 4&ndash;1 are playing right now</td></tr>
+<tr><td><code>rNR50</code></td><td><code>$FF24</code></td><td>Master volume, 0&ndash;7, for the left speaker (bits 6&ndash;4) and the right speaker (bits 2&ndash;0)</td></tr>
+<tr><td><code>rNR51</code></td><td><code>$FF25</code></td><td>Panning: one bit per channel per speaker. Bits 7&ndash;4 send channels 4&ndash;1 to the left, bits 3&ndash;0 send channels 4&ndash;1 to the right</td></tr>
+</table>
+<p>The value <code>$77</code> in <code>rNR50</code> is full volume on both sides; <code>$FF</code> in <code>rNR51</code> sends every channel to both. A single channel to both speakers is a pair of bits: <code>$11</code> is channel 1 only, <code>$22</code> channel 2 only, <code>$44</code> channel 3, <code>$88</code> channel 4. (The test suite uses exactly this to listen to one channel at a time.) <code>sound_init</code> sets all three, and starts with a little ritual:</p>
+[[part sound.asm | sound_init: | ; --- DE = the pitch value]]
+<p>Writing <code>0</code> and then <code>$80</code> to <code>rNR52</code> switches the chip off and on again. While it is off, every other sound register ignores writes, and turning it off clears them all. So the pair is a reset: whatever state the console's start-up left the sound chip in (it has just played its own start-up chime), the program begins from silence with every register at zero. Many programs write only <code>$80</code> and rely on the start-up state; this one resets because it costs two instructions and makes the result independent of the machine. It was needed in practice: in the emulator used to test this book, a channel started without the reset stayed silent. Do it before touching anything else.</p>
+
+<h3 id="1-starting-a-note">Starting a note</h3>
+<p>Channel 1 has five registers. Four of them describe the note:</p>
+<table>
+<tr><th>Register</th><th>Address</th><th>Meaning</th></tr>
+<tr><td><code>rNR11</code></td><td><code>$FF11</code></td><td>Bits 7&ndash;6: the shape of the square wave (the <em>duty</em>, Chapter 3). Bits 5&ndash;0: length (Chapter 5)</td></tr>
+<tr><td><code>rNR12</code></td><td><code>$FF12</code></td><td>The volume envelope: how loud, and whether it fades (Chapter 4)</td></tr>
+<tr><td><code>rNR13</code></td><td><code>$FF13</code></td><td>Pitch, low 8 bits</td></tr>
+<tr><td><code>rNR14</code></td><td><code>$FF14</code></td><td>Bit 7: <strong>start</strong> the sound. Bit 6: stop when the length runs out. Bits 2&ndash;0: pitch, high 3 bits</td></tr>
+</table>
+<p>The important one is bit 7 of <code>rNR14</code>. A channel does not start when you set its registers; it starts when you write a 1 to the <em>start</em> bit (the hardware calls it the <em>trigger</em>). Everything you want must therefore be written first, and the write to <code>NR14</code> goes last. Writing it again starts the note again from the beginning, which is how a program plays one note after another.</p>
+
+<h3 id="1-first-example">A complete example</h3>
+<p>This program switches the sound on, prints a line, and plays channel 1 at about 2048 Hz, a high, thin beep, with a volume that starts at the maximum and fades out over about a second. When it has started the note it has nothing left to do:</p>
+[[file beep_demo.asm]]
+<p><strong>What you hear:</strong> a single beep that fades away in about a second, and then silence. The program stopped at <code>Done</code> long before the sound did: <code>HALT</code> puts the processor to sleep, and the sound chip carries on regardless. The test suite records the sound the emulated chip produces and measures it: the pitch measures 2046 Hz (the value <code>$7C0</code> gives exactly 131072 / 64 = 2048 Hz; the measurement is good to a few hertz), the wave is high exactly half the time, the loudness falls, and a second later the output is silent again.</p>
+<p>Two of the values are worth decoding now, and Chapters 2 and 4 return to them. <code>$F3</code> in <code>rNR12</code> means &ldquo;start at volume 15, and fade&rdquo;; <code>$7C0</code> is the pitch, split between <code>rNR13</code> (<code>$C0</code>) and the low three bits of <code>rNR14</code> (<code>$07</code>), exactly as the program writes it.</p>
+<p class="bold-text">Key fact: a channel plays by itself. Set it up, write the start bit last, and the program is free; sound is the one thing the Game Boy does that needs no help from the processor once begun.</p>
+<h3 id="1-exercises">Try it yourself</h3>
+<ol>
+<li>Change <code>$C0</code> to <code>$00</code>. Is the beep higher or lower? Change the <code>$07</code> to <code>$03</code>. Why does that one change make a much larger difference?</li>
+<li>Change <code>rNR50</code> in <code>sound_init</code> to <code>$11</code>. What changes, and why is it not silent?</li>
+<li>Change <code>rNR51</code> to <code>$10</code> so that channel 1 only reaches the left speaker. With headphones, which ear plays it?</li>
+</ol>
+</section>
+
+<section>
+<h1 id="2-pitch-and-notes">2. Pitch &amp; Notes</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+
+<h2 id="2-in-high-level-languages">In High-Level Languages</h2>
+<p>You name a note and the library finds the frequency, using floating point and a power of two. A semitone is the twelfth root of two:</p>
+[[text]]
+frequency = 440 * 2 ** ((note - 69) / 12)       # MIDI numbering: A4 = 69
+osc.frequency = frequency                       # any real number will do
+[[/text]]
+<p>Any real number will do, and the oscillator turns it into a wave without you ever seeing the arithmetic. That is exactly what a Game Boy has no room for: no floating point, no powers, not even a multiply instruction.</p>
+<h2 id="2-in-game-boy-assembly">In Game Boy Assembly</h2>
+<p>A square channel does not take a frequency. It takes an 11-bit number, <em>x</em>, from 0 to 2047, and counts: the larger the number, the shorter the wait between flips of the wave, and the higher the note. The frequency you hear is</p>
+[[text]]
+frequency = 131072 / (2048 - x)  Hz
+[[/text]]
+<p>so the lowest possible note (<em>x</em> = 0) is 64 Hz and the highest is more than 100,000 Hz, far above anything you can hear. Everything musical happens in the top fraction of the range, where <em>x</em> is close to 2047.</p>
+
+<h3 id="2-worked-example">A note, worked by hand</h3>
+<p>The note A above middle C is 440 Hz. Rearranging the formula for <em>x</em>:</p>
+[[text]]
+x = 2048 - 131072 / 440
+  = 2048 - 297.9
+  = 1750.1   which rounds to 1750 = $6D6
+[[/text]]
+<p>The 11 bits are written in two pieces: the low 8 bits (<code>$D6</code>) go in <code>rNR13</code>, and the top 3 bits (<code>$6</code> is <code>%110</code>) go in the low three bits of <code>rNR14</code>, with the start bit set: <code>$86</code>. The note then sounds at 131072 / (2048 &minus; 1750) = 439.8 Hz, about two-thirds of a cent flat of 440.</p>
+
+<h3 id="2-the-note-table">The note table</h3>
+<p>A program needs hundreds of different notes and cannot do that division on the machine, so the work is done once, in advance. <code>NoteTable</code> in <code>sound.asm</code> holds the 11-bit value for 72 notes, six octaves from C2 (65 Hz) to B7 (3951 Hz), two bytes each. The notes are numbered from 0, and every semitone adds one, so the number of a note is a position in the table:</p>
+[[part notes.inc | ; C2 is note 0 | DEF Cs2]]
+<p><code>notes.inc</code> gives every note a name: <code>C2</code>, <code>Cs2</code> for C sharp, <code>D2</code> and so on up to <code>B7</code>, so a program can say <code>LD A, A4</code>. Finding a note in the table is a doubling (two bytes each) and an add:</p>
+[[part sound.asm | ; --- DE = the pitch value | ; --- Start a note]]
+<p>The values in the table are the formula above, rounded to a whole number, for a tuning of A4 = 440 Hz. Rounding costs something, and it costs most at the top. In the lowest octaves one step of <em>x</em> is a tiny fraction of a note; by B7 a step is about half a semitone, so the highest notes can be up to a fifth of a semitone out of tune. The test suite checks every entry against the formula: in the lowest four octaves each is within 6 cents of true, in the sixth within 11 and in the top octave within 20, where a cent is a hundredth of a semitone.</p>
+<p>Starting a note on channel 1, 2 or 3 is then three lines, because the three channels have the same layout, just at different addresses: the low byte to <code>NRx3</code> and the high bits, with the start flag, to <code>NRx4</code>:</p>
+[[part sound.asm | ; --- Start a note | ; --- Copy 16 bytes]]
+
+<h3 id="2-example">A complete example</h3>
+<p>This program plays the C major scale, one note every 24 frames, and prints each note's name. It uses <code>print_note</code>, which turns a note number into a name by finding the letter in a table and counting octaves with repeated subtraction of 12:</p>
+[[file scale_demo.asm]]
+<p><strong>What you hear:</strong> eight notes going up, the usual do-re-mi, ending on the C an octave above where it started. The tests measure each one from the recorded sound and compare it to <code>440 &times; 2<sup>(n&minus;33)/12</sup></code>; all are within 15 cents. Look at what the loop does not do: it never counts a wave or a sample. It looks up a number, writes it, and waits.</p>
+<p class="bold-text">Key fact: pitch is an 11-bit number, <code>131072 / (2048 &minus; x)</code> Hz, written in two pieces. A table in ROM replaces the arithmetic, and the start bit in <code>NRx4</code> goes last.</p>
+<h3 id="2-exercises">Try it yourself</h3>
+<ol>
+<li>Change <code>Scale</code> to play the minor scale: <code>C4, D4, Ds4, F4, G4, Gs4, As4, C5</code>. Which three notes did you lower?</li>
+<li>Make the scale play down as well as up, by changing the table.</li>
+<li>Work out <code>x</code> for 261.6 Hz (middle C) by hand, as in the example above, and compare it with the C4 entry of <code>NoteTable</code>. How close are they?</li>
+</ol>
+</section>

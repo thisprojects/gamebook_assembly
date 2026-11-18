@@ -1,0 +1,104 @@
+<section>
+<h1 id="appendix-a-library-reference">Appendix A: Library Reference</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+<p>Every routine in the book, by file. Inputs are registers; &ldquo;destroys&rdquo; lists what the caller must not rely on.</p>
+
+<h2 id="a-sound">sound.asm: the basics (Chapters 1, 2 and 7)</h2>
+<table>
+<tr><th>Routine</th><th>Input</th><th>Does</th></tr>
+<tr><td><code>sound_init</code></td><td>&mdash;</td><td>Switches the sound chip off and on (clearing every register), then master volume full and every channel to both speakers</td></tr>
+<tr><td><code>note_freq</code></td><td>A note number 0&ndash;71</td><td>DE = the 11-bit pitch value from <code>NoteTable</code> (destroys HL)</td></tr>
+<tr><td><code>play_ch1</code>, <code>play_ch2</code>, <code>play_ch3</code></td><td>DE pitch value</td><td>Writes the pitch to <code>NRx3</code>/<code>NRx4</code> with the start bit set. Set duty and envelope first</td></tr>
+<tr><td><code>wave_load</code></td><td>HL 16 bytes</td><td>Switches channel 3 off, loads wave RAM, switches it on (destroys B, DE)</td></tr>
+</table>
+
+<h2 id="a-notes">notes.inc: names (Chapter 2, 10)</h2>
+<table>
+<tr><th>Names</th><th>Meaning</th></tr>
+<tr><td><code>C2</code> ... <code>B7</code>, with <code>Cs2</code> for C sharp</td><td>Note numbers 0&ndash;71 (C2 = 0, A4 = 33)</td></tr>
+<tr><td><code>REST</code>, <code>SONG_LOOP</code></td><td>Special values in a song stream</td></tr>
+<tr><td><code>DRUM_KICK</code>, <code>DRUM_SNARE</code>, <code>DRUM_HAT</code></td><td>Drum numbers for channel 4 in a song</td></tr>
+<tr><td><code>N16</code>, <code>N8</code>, <code>N4</code>, <code>N2</code>, <code>N1</code></td><td>Lengths in frames: 6, 12, 24, 48, 96</td></tr>
+</table>
+
+<h2 id="a-frame">frame.asm: the frame clock (Chapter 9)</h2>
+<table>
+<tr><th>Routine</th><th>Input</th><th>Does</th></tr>
+<tr><td><code>frame_init</code></td><td>&mdash;</td><td>Enables the VBlank interrupt in <code>rIE</code>; the program must then execute <code>EI</code></td></tr>
+<tr><td><code>wait_frame</code></td><td>&mdash;</td><td>Sleeps until the next frame begins</td></tr>
+<tr><td><code>wTicks</code></td><td>&mdash;</td><td>Frames since <code>frame_init</code>, wrapping at 256</td></tr>
+</table>
+
+<h2 id="a-music">music.asm: the music engine (Chapter 10)</h2>
+<table>
+<tr><th>Routine</th><th>Input</th><th>Does</th></tr>
+<tr><td><code>music_play</code></td><td>HL song</td><td>Starts the song from the beginning</td></tr>
+<tr><td><code>music_tick</code></td><td>&mdash;</td><td>One frame of music: call once per frame, after <code>wait_frame</code></td></tr>
+<tr><td><code>music_stop</code></td><td>&mdash;</td><td>Switches the music off and silences channels 1&ndash;4</td></tr>
+<tr><td><code>sfx_hold</code></td><td>A frames</td><td>Keeps the music off channel 1 for that long, for a sound effect</td></tr>
+</table>
+<p>A song is <code>DW</code> four stream addresses (0 for an unused channel) and <code>DB</code> four instrument bytes. A stream is pairs of bytes: note (or <code>REST</code>) and length in frames, ended by <code>SONG_LOOP</code>. On channel 4 the note is a drum number from <code>DrumTable</code>.</p>
+
+<h2 id="a-screen">screen.asm, gfx.asm, text.asm: the little display</h2>
+<table>
+<tr><th>Routine</th><th>Input</th><th>Does</th></tr>
+<tr><td><code>screen_init</code></td><td>&mdash;</td><td>Loads the font, clears the screen, switches the LCD on</td></tr>
+<tr><td><code>show_text</code></td><td>B column, C row, HL zero-terminated string</td><td>Prints a string at a position</td></tr>
+<tr><td><code>print_note</code></td><td>A note number</td><td>Prints its name, like <code>C-4</code> or <code>F#5</code>, at the cursor</td></tr>
+<tr><td><code>print_at</code></td><td>B column, C row</td><td>Moves the cursor (destroys HL)</td></tr>
+<tr><td><code>print_char</code>, <code>print_string</code>, <code>print_number</code></td><td>A character; HL string; A 0&ndash;255</td><td>Print at the cursor (safe with the LCD on)</td></tr>
+</table>
+
+<h2 id="a-joypad">joypad.asm: input (Chapter 11)</h2>
+<table>
+<tr><th>Routine</th><th>Input</th><th>Does</th></tr>
+<tr><td><code>read_joypad</code></td><td>&mdash;</td><td>Updates <code>wJoy</code> (held) and <code>wJoyNew</code> (newly pressed); A = <code>wJoy</code></td></tr>
+</table>
+</section>
+
+<section>
+<h1 id="appendix-b-registers">Appendix B: Sound Registers</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+<table>
+<tr><th>Register</th><th>Address</th><th>Purpose</th></tr>
+<tr><td><code>rNR10</code></td><td><code>$FF10</code></td><td>Channel 1 sweep: bits 6&ndash;4 step time (n/128 s, 0 = off); bit 3 direction (1 = falling); bits 2&ndash;0 shift</td></tr>
+<tr><td><code>rNR11</code>, <code>rNR21</code></td><td><code>$FF11</code>, <code>$FF16</code></td><td>Bits 7&ndash;6 duty (1/8, 2/8, 4/8, 6/8); bits 5&ndash;0 length: lasts (64 &minus; length)/256 s</td></tr>
+<tr><td><code>rNR12</code>, <code>rNR22</code>, <code>rNR42</code></td><td><code>$FF12</code>, <code>$FF17</code>, <code>$FF21</code></td><td>Envelope: bits 7&ndash;4 start volume; bit 3 rising; bits 2&ndash;0 step time in 1/64 s (0 = none). Top five bits zero switches the channel off</td></tr>
+<tr><td><code>rNR13</code>, <code>rNR23</code>, <code>rNR33</code></td><td><code>$FF13</code>, <code>$FF18</code>, <code>$FF1D</code></td><td>Pitch, low 8 bits</td></tr>
+<tr><td><code>rNR14</code>, <code>rNR24</code>, <code>rNR34</code></td><td><code>$FF14</code>, <code>$FF19</code>, <code>$FF1E</code></td><td>Bit 7 start; bit 6 stop when the length runs out; bits 2&ndash;0 pitch, high 3 bits. Channels 1&ndash;2: 131072 / (2048 &minus; x) Hz; channel 3: 65536 / (2048 &minus; x) Hz</td></tr>
+<tr><td><code>rNR30</code></td><td><code>$FF1A</code></td><td>Bit 7: channel 3 on</td></tr>
+<tr><td><code>rNR31</code></td><td><code>$FF1B</code></td><td>Channel 3 length: lasts (256 &minus; length)/256 s</td></tr>
+<tr><td><code>rNR32</code></td><td><code>$FF1C</code></td><td>Channel 3 volume, bits 6&ndash;5: 0 silent, 1 full, 2 half, 3 a quarter</td></tr>
+<tr><td><code>rWAVE</code></td><td><code>$FF30</code>&ndash;<code>$FF3F</code></td><td>Wave RAM: 32 four-bit samples, high four bits first. Change it with channel 3 off</td></tr>
+<tr><td><code>rNR41</code></td><td><code>$FF20</code></td><td>Channel 4 length, bits 5&ndash;0</td></tr>
+<tr><td><code>rNR43</code></td><td><code>$FF22</code></td><td>Noise: bits 7&ndash;4 shift s; bit 3 width (1 = 7-bit, buzzy); bits 2&ndash;0 divisor r. Clock 262144 / (r &times; 2<sup>s</sup>) Hz</td></tr>
+<tr><td><code>rNR44</code></td><td><code>$FF23</code></td><td>Bit 7 start; bit 6 stop when the length runs out</td></tr>
+<tr><td><code>rNR50</code></td><td><code>$FF24</code></td><td>Master volume: bits 6&ndash;4 left, bits 2&ndash;0 right (0&ndash;7)</td></tr>
+<tr><td><code>rNR51</code></td><td><code>$FF25</code></td><td>Panning: bits 7&ndash;4 channels 4&ndash;1 to the left, bits 3&ndash;0 channels 4&ndash;1 to the right</td></tr>
+<tr><td><code>rNR52</code></td><td><code>$FF26</code></td><td>Bit 7 sound on. Switching it off clears every sound register. Bits 3&ndash;0 (read): channels 4&ndash;1 are playing</td></tr>
+</table>
+</section>
+
+<section>
+<h1 id="appendix-c-notes">Appendix C: Note Table</h1>
+<a href="#toc" class="back-to-top">[Back to Contents]</a>
+<p>The 11-bit pitch value of every note from C2 to B7, as held in <code>NoteTable</code> (hexadecimal, for the square channels; ask for a note an octave higher on channel 3). The value is <code>2048 &minus; 131072 / f</code> for the note's frequency <em>f</em>, rounded. The octave is the number in the note's name: A4 is in row 4 and column A.</p>
+<table>
+<tr><th>Octave</th><th>C</th><th>C#</th><th>D</th><th>D#</th><th>E</th><th>F</th><th>F#</th><th>G</th><th>G#</th><th>A</th><th>A#</th><th>B</th></tr>
+<tr><td>2</td><td><code>$02C</code></td><td><code>$09D</code></td><td><code>$107</code></td><td><code>$16B</code></td><td><code>$1C9</code></td><td><code>$223</code></td><td><code>$277</code></td><td><code>$2C7</code></td><td><code>$312</code></td><td><code>$358</code></td><td><code>$39B</code></td><td><code>$3DA</code></td></tr>
+<tr><td>3</td><td><code>$416</code></td><td><code>$44E</code></td><td><code>$483</code></td><td><code>$4B5</code></td><td><code>$4E5</code></td><td><code>$511</code></td><td><code>$53B</code></td><td><code>$563</code></td><td><code>$589</code></td><td><code>$5AC</code></td><td><code>$5CE</code></td><td><code>$5ED</code></td></tr>
+<tr><td>4</td><td><code>$60B</code></td><td><code>$627</code></td><td><code>$642</code></td><td><code>$65B</code></td><td><code>$672</code></td><td><code>$689</code></td><td><code>$69E</code></td><td><code>$6B2</code></td><td><code>$6C4</code></td><td><code>$6D6</code></td><td><code>$6E7</code></td><td><code>$6F7</code></td></tr>
+<tr><td>5</td><td><code>$706</code></td><td><code>$714</code></td><td><code>$721</code></td><td><code>$72D</code></td><td><code>$739</code></td><td><code>$744</code></td><td><code>$74F</code></td><td><code>$759</code></td><td><code>$762</code></td><td><code>$76B</code></td><td><code>$773</code></td><td><code>$77B</code></td></tr>
+<tr><td>6</td><td><code>$783</code></td><td><code>$78A</code></td><td><code>$790</code></td><td><code>$797</code></td><td><code>$79D</code></td><td><code>$7A2</code></td><td><code>$7A7</code></td><td><code>$7AC</code></td><td><code>$7B1</code></td><td><code>$7B6</code></td><td><code>$7BA</code></td><td><code>$7BE</code></td></tr>
+<tr><td>7</td><td><code>$7C1</code></td><td><code>$7C5</code></td><td><code>$7C8</code></td><td><code>$7CB</code></td><td><code>$7CE</code></td><td><code>$7D1</code></td><td><code>$7D4</code></td><td><code>$7D6</code></td><td><code>$7D9</code></td><td><code>$7DB</code></td><td><code>$7DD</code></td><td><code>$7DF</code></td></tr>
+</table>
+<p>The fourth octave, with the frequencies the values actually give (the tuning is A4 = 440 Hz):</p>
+<table>
+<tr><th>Note</th><th>C4</th><th>C#4</th><th>D4</th><th>D#4</th><th>E4</th><th>F4</th><th>F#4</th><th>G4</th><th>G#4</th><th>A4</th><th>A#4</th><th>B4</th></tr>
+<tr><td>Hz</td><td>261.6</td><td>277.1</td><td>293.9</td><td>311.3</td><td>329.3</td><td>349.5</td><td>370.3</td><td>392.4</td><td>414.8</td><td>439.8</td><td>466.4</td><td>494.6</td></tr>
+<tr><td>Value</td><td><code>$60B</code></td><td><code>$627</code></td><td><code>$642</code></td><td><code>$65B</code></td><td><code>$672</code></td><td><code>$689</code></td><td><code>$69E</code></td><td><code>$6B2</code></td><td><code>$6C4</code></td><td><code>$6D6</code></td><td><code>$6E7</code></td><td><code>$6F7</code></td></tr>
+</table>
+</section>
+
+</body>
+</html>

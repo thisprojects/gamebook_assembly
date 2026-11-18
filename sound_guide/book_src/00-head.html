@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Beeps, Waves &amp; Noise: Game Boy Sound in Assembly</title>
+<style>
+/* The four shades of the original Game Boy LCD, plus two extra tints for readable text.
+   Every text/background pair below is checked for WCAG AA contrast (4.5:1) by tests/test_lib.py. */
+:root {
+    --lcd-lightest: #9bbc0f;
+    --lcd-light: #8bac0f;
+    --lcd-dark: #306230;
+    --lcd-darkest: #0f380f;
+    --bezel: #4b4d5e;
+
+    --bg: #9bbc0f;            /* page: the lightest LCD green */
+    --surface: #adcb2c;       /* panels: a slightly paler green */
+    --text: #0f380f;          /* body text: the darkest LCD green */
+    --text-dim: #214a18;
+    --heading: #0f380f;
+    --rule: #306230;
+    --link: #0b2e0b;
+
+    --code-bg: #0f380f;       /* code blocks: an inverted screen */
+    --code-border: #306230;
+    --code-text: #d3eb78;
+    --code-comment: #9bbc0f;
+    --code-keyword: #f2fba8;
+    --code-label: #c8e85a;
+    --code-string: #b5d842;
+    --code-number: #e4f58e;
+    --code-directive: #a9cf3a;
+    --inline-code-bg: #0f380f;
+    --inline-code-text: #d3eb78;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: 'Courier New', Courier, 'Lucida Console', monospace;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+}
+h1, h2, h3 { color: var(--heading); margin-top: 2.5rem; margin-bottom: 1rem; letter-spacing: 0.02em; }
+h1 { font-size: 2rem; border-bottom: 4px solid var(--rule); padding-bottom: 0.5rem; }
+h2 { font-size: 1.5rem; border-bottom: 2px dashed var(--rule); padding-bottom: 0.3rem; }
+h3 { font-size: 1.2rem; }
+h3::before { content: "\25B6\00a0"; }   /* a little menu cursor */
+p { margin-bottom: 1rem; }
+ul, ol { margin: 0 0 1rem 1.5rem; }
+li { margin-bottom: 0.3rem; }
+strong { font-weight: 700; }
+.title-block {
+    text-align: center;
+    padding: 2.5rem 1rem 1.5rem;
+    margin-bottom: 2rem;
+    background: var(--bezel);
+    border-radius: 14px 14px 56px 14px;
+    box-shadow: 0 4px 0 #2d2f3b;
+}
+.title-block .screen {
+    background: var(--lcd-lightest);
+    border: 6px solid #2d2f3b;
+    border-radius: 6px;
+    margin: 0 auto;
+    max-width: 640px;
+    padding: 1.5rem 1rem;
+    box-shadow: inset 0 0 0 3px var(--lcd-light);
+}
+.title-block h1 { border: none; font-size: 2.2rem; margin-top: 0; color: var(--lcd-darkest); }
+.title-block .subtitle { font-size: 1.1rem; color: var(--text-dim); margin-top: 0.5rem; }
+.title-block .assembler { font-size: 0.9rem; color: var(--text); margin-top: 1rem; font-weight: 700; }
+.title-block .bezel-text { color: #ffffff; font-size: 0.8rem; letter-spacing: 0.15em; margin-top: 1rem; }
+nav#toc {
+    background: var(--surface);
+    border: 3px solid var(--rule);
+    border-radius: 6px;
+    padding: 1.5rem 2rem;
+    margin-bottom: 3rem;
+}
+nav#toc h2 { margin-top: 0; }
+nav#toc ul { list-style: none; margin-left: 0; padding-left: 0; }
+nav#toc > ul > li { margin-bottom: 0.4rem; }
+nav#toc ul ul { padding-left: 1.5rem; }
+nav#toc ul ul li { margin-bottom: 0.2rem; }
+a { color: var(--link); text-decoration: underline; }
+a:hover, a:focus { background: var(--lcd-darkest); color: var(--lcd-lightest); }
+pre {
+    background: var(--code-bg);
+    border: 3px solid var(--code-border);
+    border-radius: 6px;
+    padding: 1rem 1.2rem;
+    overflow-x: auto;
+    margin-bottom: 1.2rem;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+code {
+    font-family: 'Courier New', Courier, 'Lucida Console', monospace;
+    background: var(--inline-code-bg);
+    color: var(--inline-code-text);
+    padding: 0 0.3em;
+    border-radius: 3px;
+}
+pre code { background: none; color: var(--code-text); padding: 0; }
+kbd { background: var(--lcd-darkest); color: var(--lcd-lightest); padding: 0 0.35em; border-radius: 3px; font-family: inherit; }
+.comment { color: var(--code-comment); }
+.keyword { color: var(--code-keyword); font-weight: 700; }
+.label { color: var(--code-label); text-decoration: underline; }
+.string { color: var(--code-string); }
+.number { color: var(--code-number); }
+.directive { color: var(--code-directive); font-weight: 700; }
+.bold-text { font-weight: 700; }
+.note {
+    background: var(--surface);
+    border-left: 8px solid var(--rule);
+    padding: 0.8rem 1rem;
+    margin-bottom: 1.2rem;
+}
+.back-to-top {
+    display: inline-block;
+    margin-top: 0.3rem;
+    margin-bottom: 1rem;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+}
+section { margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: 2px solid var(--rule); }
+section:last-child { border-bottom: none; }
+table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; }
+th { text-align: left; padding: 0.5rem; color: var(--heading); border-bottom: 3px solid var(--rule); }
+td { padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+tr.highlight-row { background: var(--surface); }
+figure.shot { margin: 1rem 0; text-align: center; }
+figure.shot img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid #888; }
+figure.shot figcaption { font-size: 0.85rem; margin-top: 0.3rem; }
+@media (max-width: 600px) { body { padding: 1rem 0.8rem; } .title-block h1 { font-size: 1.6rem; } }
+</style>
+</head>
+<body>
+
+<div class="title-block">
+<div class="screen">
+<h1>Beeps, Waves &amp; Noise</h1>
+<div class="subtitle">A Programmer's Guide to Game Boy Sound in Assembly</div>
+<div class="assembler">Assembler: RGBDS &middot; Emulator: any (mGBA, SameBoy, BGB)</div>
+</div>
+<div class="bezel-text">STEREO SOUND &middot; 4 CHANNELS &middot; SQUARE &middot; WAVE &middot; NOISE</div>
+</div>
+
+[[toc]]
+
